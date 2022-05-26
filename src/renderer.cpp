@@ -161,7 +161,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	Shader* shader = Shader::Get("ssao");
 	shader->enable();
 	shader->setUniform("u_gb1_texture", gbuffers_fbo->color_textures[1], 1);
-	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
+	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 0);
 	shader->setUniform("viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_inverse_viewprojection", inv_vp);
 	shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
@@ -186,8 +186,6 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	illumination_fbo->bind();
 
 	glDisable(GL_DEPTH_TEST);
-	//glClearColor(1, 0, 0, 1.0);
-	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	//we need a fullscreen quad
 	Mesh* sphere = Mesh::Get("data/meshes/sphere.obj", false, false);
@@ -196,6 +194,10 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	shader->enable();
 
 	DeferredUniforms(shader, scene, camera, width, height);
+	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+	shader->setUniform("u_inverse_viewprojection", inv_vp);
+	shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
 
 	if (!lights.size())
 	{
@@ -215,7 +217,6 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 				glEnable(GL_BLEND);
 
 			uploadLightToShader(light, shader);
-			shader->setUniform("u_camera_position", camera->eye);
 
 			//do the draw call that renders the mesh into the screen
 			quad->render(GL_TRIANGLES);
@@ -255,19 +256,10 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 void Renderer::DeferredUniforms(Shader* shader, Scene* scene, Camera* camera, int& width, int& height)
 {
-	shader->setUniform("u_ambient_light", scene->ambient_light);
-
 	shader->setUniform("u_gb0_texture", gbuffers_fbo->color_textures[0], 0);
 	shader->setUniform("u_gb1_texture", gbuffers_fbo->color_textures[1], 1);
 	shader->setUniform("u_gb2_texture", gbuffers_fbo->color_textures[2], 2);
 	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
-
-	//pass the inverse projection of the camera to reconstruct world pos.
-	Matrix44 inv_vp = camera->viewprojection_matrix;
-	inv_vp.inverse();
-	shader->setUniform("u_inverse_viewprojection", inv_vp);
-	//pass the inverse window resolution, this may be useful
-	shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
 }
 
 

@@ -121,8 +121,6 @@ vec3 specularBRDF( float roughness, vec3 f0, float NoH, float NoV, float NoL, fl
 	return spec;
 }
 
-
-
 \basic.vs
 
 #version 330 core
@@ -672,8 +670,8 @@ void main()
 	emissive *= emissive_color;
 
 	float occlusion = texture(u_roughness_texture, v_uv).x;
-	float roughness = texture(u_roughness_texture, v_uv).z;
-	float metalness = texture(u_roughness_texture, v_uv).y;
+	float roughness = texture(u_roughness_texture, v_uv).y;
+	float metalness = texture(u_roughness_texture, v_uv).z;
 	if (metalness == 1.0){ metalness = u_metallic;}
 	if (roughness == 1.0){ roughness = u_roughness;}
 	light *= occlusion;
@@ -684,7 +682,7 @@ void main()
 
 	if (u_light_type == 2) //DIRECTIONAL
 	{
-		vec3 L = normalize(-u_light_direction);
+		L = normalize(-u_light_direction);
 		
 		if (u_light_cast_shadows == 1)
 		{
@@ -697,10 +695,9 @@ void main()
 		float light_dist = length(L);
 		L = normalize(L);
 
-		float att_factor = u_light_max_dist - light_dist;
+		att_factor = u_light_max_dist - light_dist;
 		att_factor /= u_light_max_dist;
 		att_factor = max(att_factor, 0.0);
-		att_factor *= pow(att_factor, 2.0);
 
 		if (u_light_type == 1) //SPOT
 		{	
@@ -709,7 +706,7 @@ void main()
 
 			if (cos_angle > u_light_cutoff)
 			{
-				float coneFactor = clamp(pow(cos_angle, u_light_cone_exp), 0.0, 1.0);
+				coneFactor = clamp(pow(cos_angle, u_light_cone_exp), 0.0, 1.0);
 
 				if (u_light_cast_shadows == 1)
 				{
@@ -817,11 +814,13 @@ void main()
 	//Normal
 	vec3 N = normalize(gb1_color.xyz * 2.0 - vec3(1.0));
 
+	vec4 color = vec4(gb0_color.xyz, 1.0);
+	if(color.a < u_alpha_cutoff)
+		discard;
+
 	//Emissive
 	vec3 emissive;
 	if (u_emissive){ emissive = gb2_color.xyz;}
-
-	vec4 color = vec4(gb0_color.xyz, 1.0);
 
 	vec3 light = vec3 (u_ambient_light);
 
@@ -829,16 +828,16 @@ void main()
 	float light_dist = length(L);
 	L /= light_dist;
 
-	float att_factor = u_light_max_dist - light_dist;
+	//float att_factor = u_light_max_dist - light_dist;
+
 	float shadow_factor = 1.0;
-	vec3 V = normalize(u_camera_position - v_world_position);
+	float coneFactor = 1.0;
+	float att_factor = 1.0;
 
 	if (u_light_type == 2) //DIRECTIONAL
 	{
-		vec3 L = normalize(-u_light_direction);
+		L = normalize(-u_light_direction);
 		
-		//Shadows
-		float shadow_factor = 1.0;
 		if (u_light_cast_shadows == 1)
 		{
 			shadow_factor = testShadowmap(v_world_position);
@@ -846,37 +845,32 @@ void main()
 	}
 	else
 	{
-		vec3 L = u_light_position - v_world_position;
+		L = u_light_position - v_world_position;
 		float light_dist = length(L);
+		L = normalize(L);
 
-		float att_factor = u_light_max_dist - light_dist;
+		att_factor = u_light_max_dist - light_dist;
 		att_factor /= u_light_max_dist;
 		att_factor = max(att_factor, 0.0);
-		att_factor *= pow(att_factor, 2.0);
 
-		if (u_light_type == 0) //POINT
-		{
-			L = normalize(L);
-		}
-		else if (u_light_type == 1) //SPOT
-		{
-			L = normalize(L);
+		if (u_light_type == 1) //SPOT
+		{	
+			L = normalize(u_light_position - v_world_position);
 			float cos_angle = dot(L, normalize(-u_light_direction));
 
 			if (cos_angle > u_light_cutoff)
 			{
-				//Shadows
-				float shadow_factor = 1.0;
+				coneFactor = clamp(pow(cos_angle, u_light_cone_exp), 0.0, 1.0);
+
 				if (u_light_cast_shadows == 1)
 				{
 					shadow_factor = testShadowmap(v_world_position);
 				}
-
-				float coneFactor = clamp(pow(cos_angle, u_light_cone_exp), 0.0, 1.0);
-			}
+			} else {coneFactor = 0.0;}
 		}
 	}
 
+	vec3 V = normalize(u_camera_position - v_world_position);
 	vec3 H = normalize(L+V);
 
 	float NoL = clamp(dot(N,L),0.0, 1.0);
@@ -901,7 +895,7 @@ void main()
 	vec3 direct = Fr_d + Fd_d;
 
 	//compute how much light received the pixel
-	vec3 lightParams = u_light_color * u_light_intensity * att_factor * shadow_factor;
+	vec3 lightParams = u_light_color * u_light_intensity * att_factor * shadow_factor * coneFactor;
 
 	//modulate direct light by light received
 	light = direct * lightParams;
