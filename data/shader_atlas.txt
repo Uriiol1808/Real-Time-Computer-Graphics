@@ -48,10 +48,10 @@ vec3 perturbNormal(vec3 N, vec3 WP, vec2 uv, vec3 normal_pixel)
 
 float getConeFactor (vec3 L)
 {
-	float spot_cosine = dot(u_light_front, -L);
-	if (u_light_cone.z > spot_cosine)
+	float spot_cosine = dot(u_light_direction, -L);
+	if (u_light_cone_exp.z > spot_cosine)
 		return 0.0;
-	return pow(spot_cosine, u_light_cone.y);
+	return pow(spot_cosine, u_light_cone_exp.y);
 }
 
 \PBR
@@ -641,13 +641,10 @@ uniform vec3 u_ambient_light;
 uniform vec3 u_light_position;
 uniform vec3 u_light_color;
 uniform vec3 u_light_direction;
-uniform vec3 u_light_front;
-uniform vec3 u_light_cone;
 
 uniform float u_light_max_dist;
 uniform float u_light_intensity;
-uniform float u_light_cutoff;
-uniform float u_light_cone_exp;
+uniform vec3 u_light_cone_exp;
 
 uniform int u_light_type;
 
@@ -679,8 +676,7 @@ void main()
 	if(color.a < u_alpha_cutoff)
 		discard;
 
-	vec3 light = vec3(0.0);
-	light += u_ambient_light;
+	vec3 light = vec3(u_ambient_light);
 
 	vec3 N = normalize( v_normal );
 	vec3 L;
@@ -724,17 +720,19 @@ void main()
 		if (u_light_type == 1) //SPOT
 		{	
 			L = normalize(u_light_position - v_world_position);
-			float cos_angle = dot(L, normalize(-u_light_direction));
-
-			if (cos_angle > u_light_cutoff)
+			if (u_light_cone_exp.z > 0)
 			{
-				coneFactor = clamp(pow(cos_angle, u_light_cone_exp), 0.0, 1.0);
-
-				if (u_light_cast_shadows == 1)
+				float cos_angle = dot(normalize(u_light_direction), -L);
+				if (cos_angle > u_light_cone_exp.z)
 				{
-					shadow_factor = testShadowmap(v_world_position);
-				}
-			} else {coneFactor = 0.0;}
+					coneFactor = pow(cos_angle, u_light_cone_exp.y);
+
+					if (u_light_cast_shadows == 1)
+					{
+						shadow_factor = testShadowmap(v_world_position);
+					}
+				} else {coneFactor = 0.0;}
+			} 
 		}
 	}
 	vec3 V = normalize(u_camera_position - v_world_position);
@@ -794,20 +792,12 @@ uniform float u_alpha_cutoff;
 uniform vec3 u_ambient_light;
 uniform vec3 u_light_color;
 uniform vec3 u_light_position;
-uniform vec3 u_light_front;
+uniform vec3 u_camera_position;
+uniform vec3 u_light_direction;
+uniform vec3 u_light_cone_exp;
+uniform float u_light_intensity;
 uniform float u_light_max_dist;
 uniform int u_light_type;
-uniform vec3 u_light_cone;
-uniform vec3 u_camera_position;
-
-uniform bool u_emissive;
-uniform vec3 u_light_direction;
-uniform float u_light_intensity;
-uniform float u_light_cutoff;
-uniform float u_light_cone_exp;
-uniform sampler2D u_emissive_texture;
-
-in vec3 v_world_position;
 
 out vec4 FragColor;
 
@@ -841,12 +831,7 @@ void main()
 	if(color.a < u_alpha_cutoff)
 		discard;
 
-	vec3 light = vec3(0.0);
-	light += u_ambient_light;
-
-	//Emissive
-	vec3 emissive;
-	if (u_emissive){ emissive = gb2_color.xyz;}
+	vec3 light = vec3(u_ambient_light);
 
 	vec3 L = u_light_position - world_position;
 	float light_dist = length(L);
@@ -864,7 +849,7 @@ void main()
 		
 		if (u_light_cast_shadows == 1)
 		{
-			shadow_factor = testShadowmap(v_world_position);
+			shadow_factor = testShadowmap(world_position);
 		}
 	}
 	else
@@ -876,20 +861,25 @@ void main()
 		att_factor = u_light_max_dist - light_dist;
 		att_factor /= u_light_max_dist;
 		att_factor = max(att_factor, 0.0);
+		att_factor *= pow(att_factor, 2.0);
 
 		if (u_light_type == 1) //SPOT
 		{	
-			float cos_angle = dot(L, normalize(-u_light_direction));
-
-			if (cos_angle > u_light_cutoff)
+			L = normalize(u_light_position - world_position);
+			if (u_light_cone_exp.z > 0)
 			{
-				coneFactor = clamp(pow(cos_angle, u_light_cone_exp), 0.0, 1.0);
-
-				if (u_light_cast_shadows == 1)
+				float cos_angle = dot(normalize (u_light_direction), -L);
+				//float cos_angle = dot(L, normalize(-u_light_direction));
+				if (cos_angle >= u_light_cone_exp.z)
 				{
-					shadow_factor = testShadowmap(v_world_position);
-				}
-			} else {coneFactor = 0.0;}
+					coneFactor = pow(cos_angle, u_light_cone_exp.y);
+
+					if (u_light_cast_shadows == 1)
+					{
+						shadow_factor = testShadowmap(world_position);
+					}
+				} else {coneFactor = 0.0;}
+			} 
 		}
 	}
 
@@ -923,6 +913,7 @@ void main()
 	//modulate direct light by light received
 	light += direct * lightParams;
 
+	//light += gb2_color.xyz;
 	color.xyz *= light;
 	color.xyz += gb2_color.xyz;
 

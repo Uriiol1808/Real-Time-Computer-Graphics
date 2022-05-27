@@ -151,7 +151,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	}
 
 	gbuffers_fbo->unbind();
-
+	
 	//SSAO
 	if (!ssao_fbo) {
 		ssao_fbo = new FBO();
@@ -179,6 +179,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	quad->render(GL_TRIANGLES);
 
 	ssao_fbo->unbind();
+	
 
 	//ILLUMINATION
 	if (!illumination_fbo) {
@@ -194,6 +195,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	illumination_fbo->bind();
 
+	glClear(GL_COLOR_BUFFER_BIT);
 	glDisable(GL_DEPTH_TEST);
 
 	//we need a fullscreen quad
@@ -233,7 +235,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 			shader->setUniform("u_ambient_light", Vector3());
 		}
 
-	/*
+	
 	//TONE MAPPING
 	shader = Shader::Get("tonemapping");
 	shader->enable();
@@ -244,8 +246,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	shader->setUniform("u_lumwhite2", u_lumwhite2);
 	shader->setUniform("u_igamma", u_igamma);
 	quad->render(GL_TRIANGLES);
-	*/
-
+	
 	illumination_fbo->unbind();
 
 	glDisable(GL_BLEND);
@@ -620,8 +621,9 @@ void Renderer::uploadLightToShader(GTR::LightEntity* light, Shader* shader)
 	shader->setUniform("u_light_position", light->model * Vector3());
 	shader->setUniform("u_light_max_dist", light->max_dist);
 
-	shader->setUniform("u_light_cone", Vector3(light->cone_angle, light->cone_exp, cos(light->cone_angle * DEG2RAD)));
-	//shader->setUniform("u_light_front", light->model.rotateVector(Vector3(0, 0, -1)));
+	shader->setUniform("u_light_cone_exp", Vector3(light->cone_angle, light->cone_exp, cos(light->cone_angle * DEG2RAD)));
+	shader->setVector3("u_light_direction", light->model.rotateVector(Vector3(0, 0, 1)));
+	shader->setUniform("u_light_intensity", light->intensity);
 
 	if (light->shadowmap && light->cast_shadows)
 	{
@@ -688,21 +690,6 @@ void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)
 
 			LightEntity* light = lights[i];
 			uploadLightToShader(light, shader);
-
-			if (light->light_type  == eLightType::SPOT)
-			{
-				float cos_angle = cos(lights[i]->cone_angle * DEG2RAD);
-				shader->setUniform("u_light_cutoff", cos_angle);
-				shader->setUniform("u_light_cone_exp", Vector3(light->cone_angle, light->cone_exp, cos(light->cone_angle * DEG2RAD)));
-				shader->setVector3("u_light_direction", light->model.rotateVector(Vector3(0, 0, 1)));
-			}
-			if (light->light_type == eLightType::DIRECTIONAL) {
-				shader->setVector3("u_light_direction", light->model.rotateVector(Vector3(0, 0, 1)));
-			}
-
-			//Rest of uniforms
-			shader->setUniform("u_light_intensity", light->intensity);
-			shader->setUniform("u_shadows", light->cast_shadows);
 
 			mesh->render(GL_TRIANGLES);
 
