@@ -52,15 +52,23 @@ namespace GTR {
 		std::vector<RenderCall> render_calls;
 
 		eLightMode light_mode;
-		bool render_shadowmaps;
 		ePipeline pipeline;
+		bool render_shadowmaps;
 
+		//GBUFFERS
 		FBO* gbuffers_fbo;
 		FBO* illumination_fbo;
 		bool show_gbuffers;
 
+		//SSAO
 		FBO* ssao_fbo;
 		bool show_ssao;
+
+		//HDR - TONE MAPPING
+		float u_scale;
+		float u_average_lum;
+		float u_lumwhite2;
+		float u_igamma;
 
 		std::vector<Vector3> random_points;
 

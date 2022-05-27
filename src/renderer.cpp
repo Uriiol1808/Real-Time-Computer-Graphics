@@ -21,13 +21,22 @@ Renderer::Renderer()
 	pipeline = ePipeline::FORWARD;
 
 	render_shadowmaps = false;
+
+	//GBUFFERS
 	gbuffers_fbo = NULL;
 	illumination_fbo = NULL;
 	show_gbuffers = false;
 
+	//SSAO
 	ssao_fbo = NULL;
 	random_points = generateSpherePoints(64, 1, false);
 	show_ssao = false;
+
+	//HDR - TONE MAPPING (Random numbers)
+	u_scale = 1.0;
+	u_average_lum = 2.5;
+	u_lumwhite2 = 10.0;
+	u_igamma = 2.2;
 }
 
 void Renderer::renderScene(GTR::Scene* scene, Camera* camera)
@@ -224,6 +233,19 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 			shader->setUniform("u_ambient_light", Vector3());
 		}
 
+	/*
+	//TONE MAPPING
+	shader = Shader::Get("tonemapping");
+	shader->enable();
+
+	shader->setUniform("u_texture", illumination_fbo->color_textures[0]);
+	shader->setUniform("u_scale", u_scale);
+	shader->setUniform("u_average_lum", u_average_lum);
+	shader->setUniform("u_lumwhite2", u_lumwhite2);
+	shader->setUniform("u_igamma", u_igamma);
+	quad->render(GL_TRIANGLES);
+	*/
+
 	illumination_fbo->unbind();
 
 	glDisable(GL_BLEND);
@@ -231,6 +253,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	if (show_gbuffers)
 	{
+		glDisable(GL_BLEND);
 		glViewport(0, height * 0.5, width * 0.5, height * 0.5);
 		gbuffers_fbo->color_textures[0]->toViewport();
 		glViewport(width * 0.5, height * 0.5, width * 0.5, height * 0.5);

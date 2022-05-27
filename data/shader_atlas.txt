@@ -124,9 +124,9 @@ vec3 specularBRDF( float roughness, vec3 f0, float NoH, float NoV, float NoL, fl
 
 \linear_space
 
-vec3 degamma(vec3 c){ return pow(c, vec3(2.2));}
+vec3 degamma(vec3 c) { return pow(c,vec3(2.2)); }
 
-vec3 gamma(vec3 c){ return pow(c, vec3(1.0/2.2));}
+vec3 gamma(vec3 c){ return pow(c,vec3(1.0/2.2)); }
 
 \basic.vs
 
@@ -809,7 +809,7 @@ uniform sampler2D u_emissive_texture;
 
 in vec3 v_world_position;
 
-layout(location = 0) out vec4 FragColor;
+out vec4 FragColor;
 
 #define POINT 0
 #define SPOT 1
@@ -818,15 +818,16 @@ layout(location = 0) out vec4 FragColor;
 #include "getConeFactor"
 #include "testShadowmap"
 #include "PBR"
+#include "linear_space"
 
 void main()
 {
 	vec2 uv = gl_FragCoord.xy * u_iRes.xy;
 
 	//Color
-	vec4 gb0_color = texture(u_gb0_texture, uv);
-	vec4 gb1_color = texture(u_gb1_texture, uv);
-	vec4 gb2_color = texture(u_gb2_texture, uv);
+	vec4 gb0_color = texture(u_gb0_texture, uv); //Color
+	vec4 gb1_color = texture(u_gb1_texture, uv); //Normal
+	vec4 gb2_color = texture(u_gb2_texture, uv); //Extra
 
 	float depth = texture (u_depth_texture, uv).x;
 	vec4 screen_pos = vec4(uv.x*2.0-1.0, uv.y*2.0-1.0, depth*2.0-1.0, 1.0);
@@ -840,11 +841,12 @@ void main()
 	if(color.a < u_alpha_cutoff)
 		discard;
 
+	vec3 light = vec3(0.0);
+	light += u_ambient_light;
+
 	//Emissive
 	vec3 emissive;
 	if (u_emissive){ emissive = gb2_color.xyz;}
-
-	vec3 light = vec3 (u_ambient_light);
 
 	vec3 L = u_light_position - world_position;
 	float light_dist = length(L);
@@ -867,7 +869,7 @@ void main()
 	}
 	else
 	{
-		L = u_light_position - v_world_position;
+		L = u_light_position - world_position;
 		float light_dist = length(L);
 		L = normalize(L);
 
@@ -877,7 +879,6 @@ void main()
 
 		if (u_light_type == 1) //SPOT
 		{	
-			L = normalize(u_light_position - v_world_position);
 			float cos_angle = dot(L, normalize(-u_light_direction));
 
 			if (cos_angle > u_light_cutoff)
@@ -892,7 +893,7 @@ void main()
 		}
 	}
 
-	vec3 V = normalize(u_camera_position - v_world_position);
+	vec3 V = normalize(u_camera_position - world_position);
 	vec3 H = normalize(L+V);
 
 	float NoL = clamp(dot(N,L),0.0, 1.0);
@@ -917,15 +918,15 @@ void main()
 	vec3 direct = Fr_d + Fd_d;
 
 	//compute how much light received the pixel
-	vec3 lightParams = u_light_color * u_light_intensity * att_factor * shadow_factor * coneFactor;
+	vec3 lightParams = (NoL * u_light_color) * u_light_intensity * att_factor * shadow_factor * coneFactor;
 
 	//modulate direct light by light received
-	light = direct * lightParams;
+	light += direct * lightParams;
 
 	color.xyz *= light;
 	color.xyz += gb2_color.xyz;
-	FragColor = color;
 
+	FragColor = color;
 }
 
 \ssao.fs
@@ -1001,6 +1002,7 @@ uniform sampler2D u_texture;
 uniform float u_scale;
 uniform float u_average_lum;
 uniform float u_lumwhite2;
+uniform float u_igamma;
 
 #include linear_space
 
