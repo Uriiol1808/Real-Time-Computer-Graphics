@@ -69,6 +69,7 @@ namespace GTR {
 		float u_average_lum;
 		float u_lumwhite2;
 		float u_igamma;
+		bool show_hdr;
 
 		std::vector<Vector3> random_points;
 

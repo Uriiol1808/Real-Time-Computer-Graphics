@@ -246,10 +246,12 @@ void Application::renderDebugGUI(void)
 	ImGui::Checkbox("Wireframe", &render_wireframe);
 	ImGui::ColorEdit3("BG color", scene->background_color.v);
 	ImGui::ColorEdit3("Ambient Light", scene->ambient_light.v);
-	ImGui::Combo("Pipeline", (int*)&renderer->pipeline, "Forward\0Deferred", 2);
-	ImGui::Combo("Light mode", (int*)&renderer->light_mode, "Single\0Multi", 2);
-	ImGui::Checkbox("Show GBuffers", &renderer->show_gbuffers);
-	ImGui::Checkbox("Show SSAO", &renderer->show_ssao);
+	ImGui::Combo("1 - Pipeline", (int*)&renderer->pipeline, "Forward\0Deferred", 2);
+	ImGui::Combo("2 - Light mode", (int*)&renderer->light_mode, "Single\0Multi", 2);
+	ImGui::Checkbox("3 - GBuffers", &renderer->show_gbuffers);
+	ImGui::Checkbox("4 - HDR", &renderer->show_hdr);
+	ImGui::Checkbox("5 - SSAO", &renderer->show_ssao);
+	
 
 	//add info to the debug panel about the camera
 	if (ImGui::TreeNode(camera, "Camera")) {
@@ -295,7 +297,8 @@ void Application::onKeyDown( SDL_KeyboardEvent event )
 		case SDLK_1: renderer->pipeline = (renderer->pipeline == GTR::Renderer::FORWARD ? GTR::Renderer::DEFERRED : GTR::Renderer::FORWARD); break;
 		case SDLK_2: renderer->light_mode = (renderer->light_mode == GTR::Renderer::MULTI ? GTR::Renderer::SINGLE : GTR::Renderer::MULTI); break;
 		case SDLK_3: renderer->show_gbuffers = !renderer->show_gbuffers; break;
-		case SDLK_4: renderer->show_ssao = !renderer->show_ssao; break;
+		case SDLK_4: renderer->show_hdr = !renderer->show_hdr; break;
+		case SDLK_5: renderer->show_ssao = !renderer->show_ssao; break;
 		case SDLK_F5: Shader::ReloadAll(); break;
 		case SDLK_F6:
 			scene->clear();

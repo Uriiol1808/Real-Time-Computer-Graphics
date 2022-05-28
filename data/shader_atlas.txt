@@ -5,14 +5,13 @@ depth quad.vs depth.fs
 multi basic.vs multi.fs
 singlelight basic.vs singlelight.fs
 multilight basic.vs multilight.fs
-normal basic.vs normal.fs
 shadowmap basic.vs shadowmap.fs
 normals basic.vs normals.fs
 uvs basic.vs uvs.fs
 gbuffers basic.vs gbuffers.fs
 deferred quad.vs deferred.fs
 ssao quad.vs ssao.fs
-tonemapping basic vs tonemapping.fs
+tonemapping basic.vs tonemapping.fs
 
 \normal_func
 mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
@@ -1011,7 +1010,7 @@ vec3 RGB2xyY (vec3 rgb)
 }
 
 void main() {
-	vec4 color = texture2D( u_texture, v_coord );
+	vec4 color = texture2D( u_texture, v_uv );
 	vec3 rgb = color.xyz;
 
 	float lum = dot(rgb, vec3(0.2126, 0.7152, 0.0722));

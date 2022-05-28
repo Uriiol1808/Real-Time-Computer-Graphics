@@ -37,6 +37,7 @@ Renderer::Renderer()
 	u_average_lum = 2.5;
 	u_lumwhite2 = 10.0;
 	u_igamma = 2.2;
+	show_hdr = false;
 }
 
 void Renderer::renderScene(GTR::Scene* scene, Camera* camera)
@@ -235,23 +236,25 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 			shader->setUniform("u_ambient_light", Vector3());
 		}
 
-	
-	//TONE MAPPING
+	// HDR - TONE MAPPING
 	shader = Shader::Get("tonemapping");
 	shader->enable();
 
-	shader->setUniform("u_texture", illumination_fbo->color_textures[0]);
-	shader->setUniform("u_scale", u_scale);
-	shader->setUniform("u_average_lum", u_average_lum);
-	shader->setUniform("u_lumwhite2", u_lumwhite2);
-	shader->setUniform("u_igamma", u_igamma);
-	quad->render(GL_TRIANGLES);
+	if (show_hdr)
+	{
+		shader->setUniform("u_texture", illumination_fbo->color_textures[0]);
+		shader->setUniform("u_scale", u_scale);
+		shader->setUniform("u_average_lum", u_average_lum);
+		shader->setUniform("u_lumwhite2", u_lumwhite2);
+		shader->setUniform("u_igamma", u_igamma);
+		quad->render(GL_TRIANGLES);
+	}
 	
 	illumination_fbo->unbind();
-
+	
 	glDisable(GL_BLEND);
 	illumination_fbo->color_textures[0]->toViewport();
-
+	
 	if (show_gbuffers)
 	{
 		glDisable(GL_BLEND);
