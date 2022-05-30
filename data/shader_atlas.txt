@@ -3,16 +3,21 @@ flat basic.vs flat.fs
 texture basic.vs texture.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
+// FORWARD
 singlelight basic.vs singlelight.fs
 multilight basic.vs multilight.fs
 shadowmap basic.vs shadowmap.fs
 normals basic.vs normals.fs
 uvs basic.vs uvs.fs
+// DEFERRED
 gbuffers basic.vs gbuffers.fs
 deferred quad.vs deferred.fs
+// SSAO
 ssao quad.vs ssao.fs
 ssao_plus quad.vs ssao_plus.fs
-tonemapping basic.vs tonemapping.fs
+ssao_blur quad.vs ssao_blur.fs
+// HDR
+tonemapping quad.vs tonemapping.fs
 
 \normal_func
 mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
@@ -936,7 +941,7 @@ uniform mat4 u_inverse_viewprojection;
 uniform vec2 u_iRes;
 uniform vec3 u_points[64];
 
-layout(location = 0) out vec4 FragColor;
+out vec4 FragColor;
 
 void main()
 {
@@ -1053,6 +1058,29 @@ void main()
 	FragColor = vec4(ao);
 }
 
+\ssao_blur.fs
+
+#version 330 core
+
+in vec2 v_uv;
+uniform sampler2D u_ssao_texture;
+uniform float weight[5] = float[] (0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+
+out vec4 FragColor;
+
+void main() {
+	
+	 vec3 result = texture(u_ssao_texture, v_uv).rgb * weight[0];
+	 vec2 size = 1.0 / textureSize(u_ssao_texture, 0);
+
+	 for(int i = 1; i < 5; ++i){
+            result += texture(u_ssao_texture, v_uv + vec2(size.x * i, 0.0)).rgb * weight[i];
+            result += texture(u_ssao_texture, v_uv - vec2(size.x * i, 0.0)).rgb * weight[i];
+	}
+	FragColor = vec4(result, 1.0);
+} 
+
+
 \tonemapping.fs
 
 #version 330 core
@@ -1067,19 +1095,6 @@ uniform float u_lumwhite2;
 uniform float u_igamma;
 
 #include "linear_space"
-
-vec3 RGB2xyY (vec3 rgb)
-{
-	const mat3 RGB2XYZ = mat3(0.4124, 0.3576, 0.1805,
-							   0.2126, 0.7152, 0.0722,
-							   0.0193, 0.1192, 0.9505);
-	vec3 XYZ = RGB2XYZ * rgb;
-	float f = (XYZ.x + XYZ.y + XYZ.z);
-
-	return vec3(XYZ.x / f,
-				XYZ.y / f,
-				XYZ.y);
-}
 
 void main() {
 	vec4 color = texture2D( u_texture, v_uv );

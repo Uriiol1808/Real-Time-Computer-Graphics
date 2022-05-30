@@ -97,7 +97,6 @@ void Renderer::renderScene(GTR::Scene* scene, Camera* camera)
 		}
 		glViewport(0, 0, Application::instance->window_width, Application::instance->window_height);
 	}
-
 }
 
 void GTR::Renderer::renderForward(Camera* camera, GTR::Scene* scene)
@@ -122,22 +121,35 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	int width = Application::instance->window_width;
 	int height = Application::instance->window_height;
 
-	Mesh* quad = Mesh::getQuad(); //2 triangulos que forman un cuadraro en clip space (-1,1 a 1,1)
-	Matrix44 inv_vp = camera->viewprojection_matrix;
-	inv_vp.inverse();
-
 	//create and FBO
 	if (!gbuffers_fbo){
+
 		gbuffers_fbo = new FBO();
+		illumination_fbo = new FBO();
+		ssao_fbo = new FBO();
 
 		//create 3 textures of 4 components
 		gbuffers_fbo->create(width, height,
-			3, 					//three textures
-			GL_RGBA, 			//four channels
-			GL_UNSIGNED_BYTE,	//1 byte
-			true);				//add depth_texture	
+			3, 				
+			GL_RGBA, 		
+			GL_FLOAT,		
+			true);			
+
+		//create 1 textures of 3 components
+		illumination_fbo->create(width, height,
+			1, 					
+			GL_RGB, 			
+			GL_UNSIGNED_BYTE,	
+			false);				
+		
+		ssao_fbo->create(width, height,
+			1,
+			GL_RGB,
+			GL_UNSIGNED_BYTE,
+			false);
 	}
 
+	//------GBUFFERS-------
 	gbuffers_fbo->bind();
 
 	//set the clear color (the background color)
@@ -155,28 +167,21 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	gbuffers_fbo->unbind();
 	
-	//SSAO
-	if (!ssao_fbo) {
-		ssao_fbo = new FBO();
-
-		ssao_fbo->create(width, height,
-			1,
-			GL_RGB,
-			GL_UNSIGNED_BYTE,
-			false);
-	}
-
+	//-------SSAO-------
 	ssao_fbo->bind();
 
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
 
+	Mesh* quad = Mesh::getQuad(); //2 triangulos que forman un cuadraro en clip space (-1,1 a 1,1)
 	Shader* shader = Shader::Get("ssao");
 	shader->enable();
 
 	shader->setUniform("u_gb1_texture", gbuffers_fbo->color_textures[1], 1);
 	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	Matrix44 inv_vp = camera->viewprojection_matrix;
+	inv_vp.inverse();
 	shader->setUniform("u_inverse_viewprojection", inv_vp);
 	shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
 	shader->setUniform3Array("u_points", (float*)&random_points[0], random_points.size());
@@ -185,18 +190,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	ssao_fbo->unbind();
 	
-	//ILLUMINATION
-	if (!illumination_fbo) {
-
-		illumination_fbo = new FBO();
-		//create 1 textures of 3 components
-		illumination_fbo->create(width, height,
-			1, 				//one texture
-			GL_RGB, 		//three channels
-			GL_FLOAT,		//half float
-			false);			//add depth_texture
-	}
-
+	//-------ILLUMINATION-------
 	illumination_fbo->bind();
 
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -205,6 +199,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	//we need a fullscreen quad
 	//Mesh* sphere = Mesh::Get("data/meshes/sphere.obj", false, false);
 
+	Mesh* quad = Mesh::getQuad();
 	shader = Shader::Get("deferred");
 	shader->enable();
 
@@ -242,7 +237,9 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	shader->disable();
 	illumination_fbo->unbind();
 
-	// HDR - TONE MAPPING
+	glDisable(GL_BLEND);
+
+	//-------HDR - TONE MAPPING-------
 	if (show_hdr)
 	{
 		shader = Shader::Get("tonemapping");
@@ -253,10 +250,12 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		shader->setUniform("u_average_lum", u_average_lum);
 		shader->setUniform("u_lumwhite2", u_lumwhite2);
 		shader->setUniform("u_igamma", u_igamma);
+
+		illumination_fbo->color_textures[0]->toViewport(shader);
 	}
-	
-	glDisable(GL_BLEND);
-	illumination_fbo->color_textures[0]->toViewport();
+	else {
+		illumination_fbo->color_textures[0]->toViewport();
+	}
 	
 	if (show_gbuffers)
 	{
@@ -576,7 +575,7 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 	//Change light_mode
 	if (light_mode == SINGLE)
 		shader = Shader::Get("singlelight");
-	if (light_mode == MULTI)
+	else if (light_mode == MULTI)
 		shader = Shader::Get("multilight");
  
     assert(glGetError() == GL_NO_ERROR);
@@ -592,7 +591,7 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 	shader->setUniform("u_model", model );
 	float t = getTime();
 	shader->setUniform("u_time", t );
-
+	shader->setUniform("u_ambient_light", scene->ambient_light);
 	shader->setUniform("u_color", material->color);
 	if (texture)
 		shader->setUniform("u_texture", texture, 0);
@@ -611,7 +610,6 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 
 	//this is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 	shader->setUniform("u_alpha_cutoff", material->alpha_mode == GTR::eAlphaMode::MASK ? material->alpha_cutoff : 0);
-	//shader->setUniform("u_ambient_light", scene->ambient_light);
 
 	if (light_mode == SINGLE)
 		renderSinglePass(shader, mesh);
@@ -717,7 +715,6 @@ void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)
 
 void Renderer::renderSinglePass(Shader* shader, Mesh* mesh)
 {
-
 	glDepthFunc(GL_LEQUAL);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
