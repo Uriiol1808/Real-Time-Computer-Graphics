@@ -63,6 +63,7 @@ namespace GTR {
 		//SSAO
 		FBO* ssao_fbo;
 		bool show_ssao;
+		bool ssao_plus;
 
 		//HDR - TONE MAPPING
 		float u_scale;

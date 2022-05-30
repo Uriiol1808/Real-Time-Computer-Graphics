@@ -31,6 +31,7 @@ Renderer::Renderer()
 	ssao_fbo = NULL;
 	random_points = generateSpherePoints(64, 1, false);
 	show_ssao = false;
+	ssao_plus = false;
 
 	//HDR - TONE MAPPING (Random numbers)
 	u_scale = 1.0;
@@ -131,10 +132,10 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 		//create 3 textures of 4 components
 		gbuffers_fbo->create(width, height,
-			3, 			//three textures
-			GL_RGBA, 		//four channels
-			GL_UNSIGNED_BYTE, //1 byte
-			true);		//add depth_texture	
+			3, 					//three textures
+			GL_RGBA, 			//four channels
+			GL_UNSIGNED_BYTE,	//1 byte
+			true);				//add depth_texture	
 	}
 
 	gbuffers_fbo->bind();
@@ -142,6 +143,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	checkGLErrors();
 
 	//Renderizar cada objecto con un GBUffer shader
 	for (int i = 0; i < render_calls.size(); ++i)
@@ -159,7 +161,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 		ssao_fbo->create(width, height,
 			1,
-			GL_LUMINANCE,
+			GL_RGB,
 			GL_UNSIGNED_BYTE,
 			false);
 	}
@@ -168,11 +170,13 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
+
 	Shader* shader = Shader::Get("ssao");
 	shader->enable();
+
 	shader->setUniform("u_gb1_texture", gbuffers_fbo->color_textures[1], 1);
-	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 0);
-	shader->setUniform("viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_inverse_viewprojection", inv_vp);
 	shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
 	shader->setUniform3Array("u_points", (float*)&random_points[0], random_points.size());
@@ -181,17 +185,16 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	ssao_fbo->unbind();
 	
-
 	//ILLUMINATION
 	if (!illumination_fbo) {
 
 		illumination_fbo = new FBO();
 		//create 1 textures of 3 components
 		illumination_fbo->create(width, height,
-			1, 			//one texture
+			1, 				//one texture
 			GL_RGB, 		//three channels
-			GL_UNSIGNED_BYTE, //1 byte
-			false);		//add depth_texture
+			GL_FLOAT,		//half float
+			false);			//add depth_texture
 	}
 
 	illumination_fbo->bind();
@@ -200,7 +203,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	glDisable(GL_DEPTH_TEST);
 
 	//we need a fullscreen quad
-	Mesh* sphere = Mesh::Get("data/meshes/sphere.obj", false, false);
+	//Mesh* sphere = Mesh::Get("data/meshes/sphere.obj", false, false);
 
 	shader = Shader::Get("deferred");
 	shader->enable();
@@ -236,21 +239,21 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 			shader->setUniform("u_ambient_light", Vector3());
 		}
 
-	// HDR - TONE MAPPING
-	shader = Shader::Get("tonemapping");
-	shader->enable();
+	shader->disable();
+	illumination_fbo->unbind();
 
+	// HDR - TONE MAPPING
 	if (show_hdr)
 	{
+		shader = Shader::Get("tonemapping");
+		shader->enable();
+
 		shader->setUniform("u_texture", illumination_fbo->color_textures[0]);
 		shader->setUniform("u_scale", u_scale);
 		shader->setUniform("u_average_lum", u_average_lum);
 		shader->setUniform("u_lumwhite2", u_lumwhite2);
 		shader->setUniform("u_igamma", u_igamma);
-		quad->render(GL_TRIANGLES);
 	}
-	
-	illumination_fbo->unbind();
 	
 	glDisable(GL_BLEND);
 	illumination_fbo->color_textures[0]->toViewport();
@@ -286,7 +289,9 @@ void Renderer::DeferredUniforms(Shader* shader, Scene* scene, Camera* camera, in
 	shader->setUniform("u_gb0_texture", gbuffers_fbo->color_textures[0], 0);
 	shader->setUniform("u_gb1_texture", gbuffers_fbo->color_textures[1], 1);
 	shader->setUniform("u_gb2_texture", gbuffers_fbo->color_textures[2], 2);
+
 	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
+	shader->setUniform("u_ssao_texture", ssao_fbo->color_textures[0], 4);
 }
 
 
@@ -426,13 +431,16 @@ void Renderer::renderMeshWithMaterialToGBuffers(const Matrix44 model, Mesh* mesh
 	Texture* texture = material->color_texture.texture;
 	Texture* emissive_texture = material->emissive_texture.texture;
 	Texture* roughness_texture = material->metallic_roughness_texture.texture;
+	Texture* normalmap_texture = material->normal_texture.texture;
 
 	if (texture == NULL)
 		texture = Texture::getWhiteTexture(); //a 1x1 white texture
 	if (emissive_texture == NULL)
-		emissive_texture = Texture::getBlackTexture(); //a 1x1 white texture
+		emissive_texture = Texture::getWhiteTexture(); //a 1x1 white texture
 	if (roughness_texture == NULL)
 		roughness_texture = Texture::getWhiteTexture();
+	if (normalmap_texture == NULL)
+		normalmap_texture = Texture::getBlackTexture();
 
 	//select if render both sides of the triangles
 	if (material->two_sided)
@@ -470,15 +478,13 @@ void Renderer::renderMeshWithMaterialToGBuffers(const Matrix44 model, Mesh* mesh
 	if (roughness_texture)
 		shader->setUniform("u_roughness_texture", roughness_texture, 2);
 
+	if (normalmap_texture)
+		shader->setUniform("u_texture_normals", normalmap_texture, 3);
+
 	//this is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 	shader->setUniform("u_alpha_cutoff", material->alpha_mode == GTR::eAlphaMode::MASK ? material->alpha_cutoff : 0);
 
-	if (light_mode == SINGLE)
-		renderSinglePass(shader, mesh);
-	else if (light_mode == MULTI)
-		renderMultiPass(shader, mesh, material);
-	else
-		mesh->render(GL_TRIANGLES);
+	mesh->render(GL_TRIANGLES);
 
 	//disable shader
 	shader->disable();
@@ -549,6 +555,7 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 	Texture* texture = material->color_texture.texture;
 	Texture* emissive_texture = material->emissive_texture.texture;
 	Texture* roughness_texture = material->metallic_roughness_texture.texture;
+	Texture* normalmap_texture = material->normal_texture.texture;
 
 	if (texture == NULL)
 		texture = Texture::getWhiteTexture(); //a 1x1 white texture
@@ -556,6 +563,8 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 		emissive_texture = Texture::getBlackTexture(); //a 1x1 white texture
 	if (roughness_texture == NULL)
 		roughness_texture = Texture::getWhiteTexture();
+	if (normalmap_texture == NULL)
+		normalmap_texture = Texture::getBlackTexture();
 
 	//select if render both sides of the triangles
 	if(material->two_sided)
@@ -597,9 +606,12 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 	if (roughness_texture)
 		shader->setUniform("u_roughness_texture", roughness_texture, 2);
 
+	if (normalmap_texture)
+		shader->setUniform("u_texture_normals", normalmap_texture, 3);
+
 	//this is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 	shader->setUniform("u_alpha_cutoff", material->alpha_mode == GTR::eAlphaMode::MASK ? material->alpha_cutoff : 0);
-	shader->setUniform("u_ambient_light", scene->ambient_light);
+	//shader->setUniform("u_ambient_light", scene->ambient_light);
 
 	if (light_mode == SINGLE)
 		renderSinglePass(shader, mesh);
@@ -625,7 +637,7 @@ void Renderer::uploadLightToShader(GTR::LightEntity* light, Shader* shader)
 	shader->setUniform("u_light_max_dist", light->max_dist);
 
 	shader->setUniform("u_light_cone_exp", Vector3(light->cone_angle, light->cone_exp, cos(light->cone_angle * DEG2RAD)));
-	shader->setVector3("u_light_direction", light->model.rotateVector(Vector3(0, 0, 1)));
+	shader->setVector3("u_light_direction", light->model.frontVector());
 	shader->setUniform("u_light_intensity", light->intensity);
 
 	if (light->shadowmap && light->cast_shadows)
@@ -653,7 +665,7 @@ void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)
 	{
 		for (int i = 0; i < lights.size(); ++i)
 		{
-			
+			/*
 			if (i != 0)
 			{
 				if (material)
@@ -674,6 +686,7 @@ void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)
 				else
 					shader->setUniform("u_emissive", Vector3());
 			}
+			*/
 			
 			if (i == 0)
 			{
@@ -697,13 +710,16 @@ void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)
 			mesh->render(GL_TRIANGLES);
 
 			shader->setUniform("u_ambient_light", Vector3());
-
+			shader->setUniform("u_emissive", Vector3());
 		}
 	}
 }
 
 void Renderer::renderSinglePass(Shader* shader, Mesh* mesh)
 {
+
+	glDepthFunc(GL_LEQUAL);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
 	Vector3 light_position[max_lights];
 	Vector3 light_color[max_lights];

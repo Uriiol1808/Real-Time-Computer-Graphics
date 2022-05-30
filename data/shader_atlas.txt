@@ -11,6 +11,7 @@ uvs basic.vs uvs.fs
 gbuffers basic.vs gbuffers.fs
 deferred quad.vs deferred.fs
 ssao quad.vs ssao.fs
+ssao_plus quad.vs ssao_plus.fs
 tonemapping basic.vs tonemapping.fs
 
 \normal_func
@@ -427,88 +428,6 @@ float testShadowmap(vec3 pos)
 	return shadow_factor; 
 }
 
-\gbuffers.fs
-
-#version 330 core
-
-in vec3 v_position;
-in vec3 v_world_position;
-in vec3 v_normal;
-in vec2 v_uv;
-in vec4 v_color;
-
-uniform vec4 u_color;
-uniform float u_time;
-uniform float u_alpha_cutoff;
-
-uniform sampler2D u_texture;
-uniform sampler2D u_emissive_texture;
-uniform sampler2D u_texture_normals;
-uniform sampler2D u_roughness_texture;
-
-uniform vec3 u_emissive;
-uniform float u_roughness;
-uniform float u_metallic;
-
-layout(location = 0) out vec4 GB0;
-layout(location = 1) out vec4 GB1;
-layout(location = 2) out vec4 GB2;
-
-#include linear_space
-
-//from https://github.com/hughsk/glsl-dither/blob/master/4x4.glsl
-float dither4x4(vec2 position, float brightness)
-{
-  int x = int(mod(position.x, 4.0));
-  int y = int(mod(position.y, 4.0));
-  int index = x + y * 4;
-  float limit = 0.0;
-
-  if (x < 8) {
-    if (index == 0) limit = 0.0625;
-    if (index == 1) limit = 0.5625;
-    if (index == 2) limit = 0.1875;
-    if (index == 3) limit = 0.6875;
-    if (index == 4) limit = 0.8125;
-    if (index == 5) limit = 0.3125;
-    if (index == 6) limit = 0.9375;
-    if (index == 7) limit = 0.4375;
-    if (index == 8) limit = 0.25;
-    if (index == 9) limit = 0.75;
-    if (index == 10) limit = 0.125;
-    if (index == 11) limit = 0.625;
-    if (index == 12) limit = 1.0;
-    if (index == 13) limit = 0.5;
-    if (index == 14) limit = 0.875;
-    if (index == 15) limit = 0.375;
-  }
-
-  return brightness < limit ? 0.0 : 1.0;
-}
-
-void main()
-{
-	vec3 N = normalize(v_normal);
-
-	vec2 uv = v_uv;
-	vec4 color = u_color;
-	color *= texture(u_texture, v_uv);
-	if (color.a < u_alpha_cutoff && dither4x4(gl_FragCoord.xy, color.a) == 0.0)
-		discard;
-
-	vec3 emissive = u_emissive * texture(u_emissive_texture, v_uv).xyz;
-
-	float occlusion = texture(u_roughness_texture, v_uv).x;
-	float roughness = texture(u_roughness_texture, v_uv).y;
-	float metalness = texture(u_roughness_texture, v_uv).z;
-	if (metalness == 1.0){ metalness = u_metallic;}
-	if (roughness == 1.0){ roughness = u_roughness;}
-
-	GB0 = vec4(color.xyz, roughness);
-	GB1 = vec4(N * 0.5 + vec3(0.5), occlusion);
-	GB2 = vec4(emissive, metalness);
-}
-
 \singlelight.fs
 
 #version 330 core
@@ -770,6 +689,89 @@ void main()
 	FragColor = color;
 }
 
+\gbuffers.fs
+
+#version 330 core
+
+in vec3 v_position;
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+in vec4 v_color;
+
+uniform vec4 u_color;
+uniform float u_time;
+uniform float u_alpha_cutoff;
+
+uniform sampler2D u_texture;
+uniform sampler2D u_emissive_texture;
+uniform sampler2D u_texture_normals;
+uniform sampler2D u_roughness_texture;
+
+uniform vec3 u_emissive;
+uniform float u_roughness;
+uniform float u_metallic;
+
+layout(location = 0) out vec4 GB0;
+layout(location = 1) out vec4 GB1;
+layout(location = 2) out vec4 GB2;
+
+#include "normal_func"
+#include "linear_space"
+
+//from https://github.com/hughsk/glsl-dither/blob/master/4x4.glsl
+float dither4x4(vec2 position, float brightness)
+{
+  int x = int(mod(position.x, 4.0));
+  int y = int(mod(position.y, 4.0));
+  int index = x + y * 4;
+  float limit = 0.0;
+
+  if (x < 8) {
+    if (index == 0) limit = 0.0625;
+    if (index == 1) limit = 0.5625;
+    if (index == 2) limit = 0.1875;
+    if (index == 3) limit = 0.6875;
+    if (index == 4) limit = 0.8125;
+    if (index == 5) limit = 0.3125;
+    if (index == 6) limit = 0.9375;
+    if (index == 7) limit = 0.4375;
+    if (index == 8) limit = 0.25;
+    if (index == 9) limit = 0.75;
+    if (index == 10) limit = 0.125;
+    if (index == 11) limit = 0.625;
+    if (index == 12) limit = 1.0;
+    if (index == 13) limit = 0.5;
+    if (index == 14) limit = 0.875;
+    if (index == 15) limit = 0.375;
+  }
+
+  return brightness < limit ? 0.0 : 1.0;
+}
+
+void main()
+{
+	vec3 N = normalize(v_normal);
+
+	vec2 uv = v_uv;
+	vec4 color = u_color;
+	color *= texture(u_texture, v_uv);
+
+	if (color.a < u_alpha_cutoff && dither4x4(gl_FragCoord.xy, color.a) == 0.0)
+		discard;
+
+	vec3 emissive = u_emissive * texture(u_emissive_texture, v_uv).xyz;
+
+	float occlusion = texture(u_roughness_texture, v_uv).x;
+	float roughness = texture(u_roughness_texture, v_uv).y;
+	float metalness = texture(u_roughness_texture, v_uv).z;
+	if (metalness == 1.0){ metalness = u_metallic;}
+	if (roughness == 1.0){ roughness = u_roughness;}
+
+	GB0 = vec4(color.xyz, occlusion);
+	GB1 = vec4(N * 0.5 + vec3(0.5), roughness);
+	GB2 = vec4(emissive, metalness);
+}
 
 \deferred.fs
 
@@ -781,6 +783,7 @@ uniform sampler2D u_gb0_texture;
 uniform sampler2D u_gb1_texture;
 uniform sampler2D u_gb2_texture;
 uniform sampler2D u_depth_texture;
+uniform sampler2D u_ssao_texture;
 
 uniform mat4 u_inverse_viewprojection;
 uniform vec2 u_iRes;
@@ -812,7 +815,7 @@ out vec4 FragColor;
 void main()
 {
 	vec2 uv = gl_FragCoord.xy * u_iRes.xy;
-
+	
 	//Color
 	vec4 gb0_color = texture(u_gb0_texture, uv); //Color
 	vec4 gb1_color = texture(u_gb1_texture, uv); //Normal
@@ -823,6 +826,10 @@ void main()
 	vec4 proj_worldpos = u_inverse_viewprojection * screen_pos;
 	vec3 world_position = proj_worldpos.xyz / proj_worldpos.w;
 
+	float ao_factor = texture(u_ssao_texture, uv).x;
+	ao_factor = pow(ao_factor, 3.0);
+	vec3 light = u_ambient_light;
+
 	//Normal
 	vec3 N = normalize(gb1_color.xyz * 2.0 - vec3(1.0));
 
@@ -830,14 +837,10 @@ void main()
 	if(color.a < u_alpha_cutoff)
 		discard;
 
-	vec3 light = vec3(u_ambient_light);
-
-	vec3 L = u_light_position - world_position;
-	float light_dist = length(L);
-	L /= light_dist;
+	//vec3 light = vec3(u_ambient_light);
 
 	//float att_factor = u_light_max_dist - light_dist;
-
+	vec3 L;
 	float shadow_factor = 1.0;
 	float coneFactor = 1.0;
 	float att_factor = 1.0;
@@ -864,7 +867,7 @@ void main()
 
 		if (u_light_type == 1) //SPOT
 		{	
-			L = normalize(u_light_position - world_position);
+			//L = normalize(u_light_position - world_position);
 			if (u_light_cone_exp.z > 0)
 			{
 				float cos_angle = dot(normalize (u_light_direction), -L);
@@ -907,14 +910,14 @@ void main()
 	vec3 direct = Fr_d + Fd_d;
 
 	//compute how much light received the pixel
-	vec3 lightParams = (NoL * u_light_color) * u_light_intensity * att_factor * shadow_factor * coneFactor;
+	vec3 lightParams = degamma(u_light_color) * u_light_intensity * att_factor * shadow_factor * coneFactor;
 
 	//modulate direct light by light received
 	light += direct * lightParams;
 
 	//light += gb2_color.xyz;
 	color.xyz *= light;
-	color.xyz += gb2_color.xyz;
+	color.xyz += degamma(gb2_color.xyz);
 
 	FragColor = color;
 }
@@ -981,6 +984,75 @@ void main()
 	FragColor = vec4(ao);
 }
 
+\ssao_plus.fs
+
+#version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_gb1_texture;
+uniform sampler2D u_depth_texture;
+
+uniform mat4 u_viewprojection;
+uniform mat4 u_inverse_viewprojection;
+uniform vec2 u_iRes;
+uniform vec3 u_points[64];
+
+layout(location = 0) out vec4 FragColor;
+
+#include "normal_func"
+
+void main()
+{
+	vec2 uv = gl_FragCoord.xy * u_iRes.xy;
+
+	float depth = texture (u_depth_texture, uv).x;
+
+	//ignore if pixels in the background
+	if(depth >= 1.0)
+	{
+		FragColor = vec4(1.0);
+		return;
+	}
+
+	vec4 screen_pos = vec4(uv.x*2.0-1.0, uv.y*2.0-1.0, depth*2.0-1.0, 1.0);
+	vec4 proj_worldpos = u_inverse_viewprojection * screen_pos;
+	vec3 worldpos = proj_worldpos.xyz / proj_worldpos.w;
+
+	//lets use 64 samples
+	const int samples = 64;
+	int num = samples; //num samples that passed the are outside
+
+	//SSAO_PLUS
+	vec4 gb1_color = texture(u_gb1_texture, uv); //Normal
+	vec3 N = normalize(gb1_color.xyz * 2.0 - vec3(1.0));
+	mat3 rotmat = cotangent_frame(gb1_color.xyz, worldpos, uv);
+
+	//for every sample around the point
+	for( int i = 0; i < samples; ++i )
+	{
+		//compute is world position using the random
+		vec3 p = worldpos + u_points[i] * 10.0;
+		//find the uv in the depth buffer of this point
+		vec4 proj = u_viewprojection * vec4(p,1.0);
+		proj.xy /= proj.w; //convert to clipspace from homogeneous
+		//apply a tiny bias to its z before converting to clip-space
+		proj.z = (proj.z - 0.005) / proj.w;
+		proj.xyz = proj.xyz * 0.5 + vec3(0.5); //to [0..1]
+		//read p true depth
+		float pdepth = texture( u_depth_texture, proj.xy ).x;
+		//compare true depth with its depth
+		float diff = proj.z - pdepth;
+		if( diff > 0.0 && diff < 0.001) //if true depth smaller, is inside
+			num--; //remove this point from the list of visible
+	}
+
+	//finally, compute the AO factor as the ratio of visible points
+	float ao = float(num) / float(samples);
+
+	FragColor = vec4(ao);
+}
+
 \tonemapping.fs
 
 #version 330 core
@@ -994,7 +1066,7 @@ uniform float u_average_lum;
 uniform float u_lumwhite2;
 uniform float u_igamma;
 
-#include linear_space
+#include "linear_space"
 
 vec3 RGB2xyY (vec3 rgb)
 {
