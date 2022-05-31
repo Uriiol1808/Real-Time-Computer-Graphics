@@ -121,6 +121,10 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	int width = Application::instance->window_width;
 	int height = Application::instance->window_height;
 
+	Mesh* quad = Mesh::getQuad(); //2 triangulos que forman un cuadraro en clip space (-1,1 a 1,1)
+	Matrix44 inv_vp = camera->viewprojection_matrix;
+	inv_vp.inverse();
+
 	//create and FBO
 	if (!gbuffers_fbo){
 
@@ -144,7 +148,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		
 		ssao_fbo->create(width, height,
 			1,
-			GL_RGB,
+			GL_LUMINANCE,
 			GL_UNSIGNED_BYTE,
 			false);
 	}
@@ -173,15 +177,15 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
 
-	Mesh* quad = Mesh::getQuad(); //2 triangulos que forman un cuadraro en clip space (-1,1 a 1,1)
-	Shader* shader = Shader::Get("ssao");
+	Shader* shader = NULL;
+	if (ssao_plus) {shader = Shader::Get("ssao_plus");}
+	else { shader = Shader::Get("ssao"); }
+	
 	shader->enable();
 
 	shader->setUniform("u_gb1_texture", gbuffers_fbo->color_textures[1], 1);
 	shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	Matrix44 inv_vp = camera->viewprojection_matrix;
-	inv_vp.inverse();
 	shader->setUniform("u_inverse_viewprojection", inv_vp);
 	shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
 	shader->setUniform3Array("u_points", (float*)&random_points[0], random_points.size());
@@ -235,6 +239,19 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		}
 
 	shader->disable();
+
+	//-------ALPHA-------
+	gbuffers_fbo->depth_texture->copyTo(NULL); //Depth buffer
+
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+
+	for (int i = 0; i < render_calls.size(); i++) {
+		RenderCall& rc = render_calls[i];
+		if (rc.material->alpha_mode == eAlphaMode::BLEND)
+			if (camera->testBoxInFrustum(rc.world_bounding.center, rc.world_bounding.halfsize))
+				renderMeshWithMaterialToGBuffers(rc.model, rc.mesh, rc.material, camera);
+	}
 	illumination_fbo->unbind();
 
 	glDisable(GL_BLEND);
@@ -441,6 +458,14 @@ void Renderer::renderMeshWithMaterialToGBuffers(const Matrix44 model, Mesh* mesh
 	if (normalmap_texture == NULL)
 		normalmap_texture = Texture::getBlackTexture();
 
+	if (material->alpha_mode == GTR::eAlphaMode::BLEND)
+	{
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	}
+	else
+		glDisable(GL_BLEND);
+
 	//select if render both sides of the triangles
 	if (material->two_sided)
 		glDisable(GL_CULL_FACE);
@@ -564,6 +589,14 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 		roughness_texture = Texture::getWhiteTexture();
 	if (normalmap_texture == NULL)
 		normalmap_texture = Texture::getBlackTexture();
+
+	if (material->alpha_mode == GTR::eAlphaMode::BLEND)
+	{
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	}
+	else
+		glDisable(GL_BLEND);
 
 	//select if render both sides of the triangles
 	if(material->two_sided)

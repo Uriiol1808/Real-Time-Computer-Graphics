@@ -64,6 +64,7 @@ namespace GTR {
 		FBO* ssao_fbo;
 		bool show_ssao;
 		bool ssao_plus;
+		std::vector<Vector3> random_points;
 
 		//HDR - TONE MAPPING
 		float u_scale;
@@ -71,8 +72,6 @@ namespace GTR {
 		float u_lumwhite2;
 		float u_igamma;
 		bool show_hdr;
-
-		std::vector<Vector3> random_points;
 
 		static const int max_lights = 10;
 		
