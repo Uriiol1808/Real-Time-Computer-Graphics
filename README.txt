@@ -10,13 +10,13 @@ Opciones NÚMEROS del teclado:
 
  2 - MULTI PASS / SINGLE PASS
 	Mejoras respecto práctica anterior:
-		Implementación shadowmap y multi pass.
+		Implementación shadowmap en multi pass.
 		Mejora alpha en multi pass.
 
- 3 - SHOW GBUFFERS
+ 3 - ACTIVAR GBUFFERS
 
- 4 - HDR - TONE MAPPING
+ 4 - ACTIVAR HDR - TONE MAPPING
 
- 5 - SSAO
+ 5 - ACTIVAR SSAO
 	Con opción de activar SSAO+.
 

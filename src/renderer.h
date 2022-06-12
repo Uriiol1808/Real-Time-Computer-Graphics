@@ -5,6 +5,7 @@
 #include "application.h"
 #include "fbo.h"
 #include "material.h"
+#include "sphericalharmonics.h"
 
 //forward declarations
 class Camera;
@@ -30,6 +31,14 @@ namespace GTR {
 		{
 			return (rc1.distance_to_camera > rc2.distance_to_camera);
 		}
+	};
+
+	//struct to store probes
+	struct sProbe {
+		Vector3 pos; //where is located
+		Vector3 local; //its ijk pos in the matrix
+		int index; //its index in the linear array
+		SphericalHarmonics sh; //coeffs
 	};
 	
 	// This class is in charge of rendering anything in our system.
@@ -73,6 +82,22 @@ namespace GTR {
 		float u_igamma;
 		bool show_hdr;
 
+		//PROBES
+		FBO* irr_fbo;
+		std::vector<sProbe> probes;
+		Texture* probes_texture;
+		bool show_probes;
+		bool show_probes_texture;
+		Vector3 start_irr;
+		Vector3 end_irr;
+		Vector3 dim_irr;
+		Vector3 delta_irr;
+
+		//SKYBOX - REFLECTIONS
+		Texture* skybox;
+		FBO* reflection_fbo;
+		bool is_rendering_reflections;
+
 		static const int max_lights = 10;
 		
 		//add here your functions
@@ -107,8 +132,14 @@ namespace GTR {
 
 		void renderForward(Camera* camera, GTR::Scene* scene);
 		void renderDeferred(Camera* camera, GTR::Scene* scene);
-		void DeferredUniforms(Shader* shader, Scene* scene, Camera* camera, int& width, int& height);
+		void GbuffersShader(Shader* shader, Scene* scene, Camera* camera, int& width, int& height);
 
+		void renderProbe(Vector3 pos, float size, float* coeffs);
+		void captureProbe(sProbe& probe, GTR::Scene* scene);
+		void generateProbes(Scene* scene);
+
+		void renderSkybox(Camera* camera);
+		void renderSceneForward(GTR::Scene* scene, Camera* camera);
 	};
 
 	Texture* CubemapFromHDRE(const char* filename);

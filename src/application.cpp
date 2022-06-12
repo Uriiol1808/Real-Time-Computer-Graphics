@@ -251,7 +251,7 @@ void Application::renderDebugGUI(void)
 	ImGui::Checkbox("3 - GBuffers", &renderer->show_gbuffers);
 	ImGui::Checkbox("4 - HDR", &renderer->show_hdr);
 	ImGui::Checkbox("5 - SSAO", &renderer->show_ssao);
-	
+	ImGui::Checkbox("6 - Irradiance texture", &renderer->show_probes_texture);
 
 	//add info to the debug panel about the camera
 	if (ImGui::TreeNode(camera, "Camera")) {
@@ -299,6 +299,10 @@ void Application::onKeyDown( SDL_KeyboardEvent event )
 		case SDLK_3: renderer->show_gbuffers = !renderer->show_gbuffers; break;
 		case SDLK_4: renderer->show_hdr = !renderer->show_hdr; break;
 		case SDLK_5: renderer->show_ssao = !renderer->show_ssao; break;
+		//Lab3
+		case SDLK_SPACE: renderer->generateProbes(scene); break;
+		case SDLK_6: renderer->show_probes_texture = !renderer->show_probes_texture; break;
+
 		case SDLK_F5: Shader::ReloadAll(); break;
 		case SDLK_F6:
 			scene->clear();
