@@ -23,6 +23,10 @@ probe basic.vs probe.fs
 irradiance quad.vs irradiance.fs
 //SKYBOX
 skybox basic.vs skybox.fs
+//REFLECTION
+reflection_probe basic.vs reflection_probe.fs
+//VOLUMETRIC
+volumetric quad.vs volumetric.fs
 
 \normal_func
 mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
@@ -625,6 +629,7 @@ uniform float u_metallic;
 
 uniform bool u_has_reflections;
 uniform sampler2D u_reflections_texture;
+uniform samplerCube u_skybox_texture;
 
 out vec4 FragColor;
 
@@ -737,6 +742,15 @@ void main()
 
 	color.xyz *= light;
 	color.xyz += emissive.xyz;
+
+	//REFLECTION
+	vec3 material = texture(u_roughness_texture, v_uv).xyz;
+	vec3 R = reflect(-V, N);
+	vec3 reflection = texture(u_skybox_texture, R).xyz;
+
+	//float reflection_factor = material.z; //METAL
+	//color.xyz = reflection;
+	//color.xyz += mix(color.xyz, reflection, reflection_factor);
 
 	FragColor = color;
 }
@@ -1282,3 +1296,91 @@ void main()
 	FragColor = texture(u_texture, V);
 }
 
+\reflection_probe.fs
+
+#version 330 core
+
+in vec3 v_world_position;
+in vec3 v_normal;
+
+uniform samplerCube u_texture;
+uniform vec3 u_camera_position;
+
+out vec4 FragColor;
+
+void main()
+{
+	vec3 V = v_world_position - u_camera_position;
+	vec3 N = normalize(v_normal);
+	vec3 R = reflect(V, N);
+	FragColor = texture(u_texture, R);
+}
+
+\volumetric.fs
+
+#version 330 core
+
+uniform vec2 u_iRes;
+
+uniform sampler2D u_depth_texture;
+uniform sampler2D u_irr_texture;
+uniform mat4 u_inverse_viewprojection;
+uniform mat4 u_viewprojection;
+uniform vec3 u_camera_position;
+uniform vec3 u_ambient_light;
+uniform vec3 u_light_color;
+uniform vec3 u_light_position;
+uniform int u_light_type;
+uniform float u_air_density;
+
+out vec4 FragColor;
+
+const int SAMPLES = 64;
+
+#include "SH"
+#include "testShadowmap"
+
+void main()
+{
+	vec2 uv = gl_FragCoord.xy * u_iRes.xy;
+	
+	float depth = texture(u_depth_texture, uv).x;	
+
+	vec4 screen_pos = vec4(uv.x * 2.0 - 1.0, uv.y * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+	vec4 proj_worldpos = u_inverse_viewprojection * screen_pos;
+	vec3 world_position = proj_worldpos.xyz / proj_worldpos.w;
+	vec3 color = vec3(0.0);
+
+	vec3 ray_start = u_camera_position;
+	vec3 ray_dir = (world_position - ray_start);
+	float ray_length = length(ray_dir);
+	ray_dir /= ray_length;
+	ray_dir = normalize(ray_dir);
+	ray_length = min(200.0, ray_length);
+	
+	float step_dist = ray_length / float(SAMPLES);
+
+	vec3 current_pos = ray_start;
+	vec3 ray_offset = ray_dir * step_dist;
+
+	float transparency = 1.0;
+
+	vec3 irradiance = vec3(0.0);
+	float in_light = 0;
+
+	for(int i = 0; i < SAMPLES; ++i)
+	{
+		vec3 light = u_light_color * testShadowmap(current_pos);
+
+		irradiance += light * transparency * (u_air_density * step_dist);
+
+		transparency -= u_air_density * step_dist;
+		//too dense, nothing can be seen behind
+		if( transparency < 0.001 )
+			break;
+
+		//advance to next position
+		current_pos.xyz += ray_offset;
+	}
+	FragColor = vec4(irradiance, 1.0 - transparency);
+}

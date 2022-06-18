@@ -12,6 +12,7 @@
 #include "fbo.h"
 #include <algorithm>
 #include <vector>
+#include "sphericalharmonics.h"
 
 using namespace GTR;
 
@@ -50,23 +51,20 @@ Renderer::Renderer()
 	reflection_fbo = new FBO();
 	reflection_fbo->create(Application::instance->window_width, Application::instance->window_height);
 	is_rendering_reflections = false;
+	reflection_probe_fbo = new FBO();
+	probe = NULL;
+
+	//VOLUMETRIC
+	volumetric_fbo = NULL;
+	direct_light = NULL;
 }
 
 void Renderer::renderScene(GTR::Scene* scene, Camera* camera)
 {
-	reflection_fbo->bind();
-	Camera flipped_camera;
-	flipped_camera.lookAt(camera->eye * Vector3(1, -1, 1), camera->center * Vector3(1, -1, 1), Vector3(0, -1, 0));
-	flipped_camera.setPerspective(camera->fov, camera->aspect, camera->near_plane, camera->far_plane);
-	flipped_camera.enable();
-	is_rendering_reflections = true;
-	renderSceneForward(scene, &flipped_camera);
-	is_rendering_reflections = false;
-
-	reflection_fbo->unbind();
-
 	camera->enable();
 	renderSceneForward(scene, camera);
+
+	renderReflectionProbes(scene, camera);
 }
 
 void Renderer::renderSceneForward(GTR::Scene* scene, Camera* camera)
@@ -94,6 +92,8 @@ void Renderer::renderSceneForward(GTR::Scene* scene, Camera* camera)
 		{
 			LightEntity* light = (GTR::LightEntity*)ent;
 			lights.push_back(light);
+			if (light->light_type == eLightType::DIRECTIONAL)
+				direct_light = light;
 		}
 	}
 
@@ -107,10 +107,8 @@ void Renderer::renderSceneForward(GTR::Scene* scene, Camera* camera)
 			generateShadowmap(light);
 	}
 	
-	if (pipeline == FORWARD)
-		renderForward(camera, scene);
-	else if (pipeline == DEFERRED)
-		renderDeferred(camera, scene);
+	if (pipeline == FORWARD) renderForward(camera, scene);
+	else if (pipeline == DEFERRED) renderDeferred(camera, scene);
 
 	if (render_shadowmaps)
 	{
@@ -274,7 +272,6 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 			//sphere->render(GL_TRIANGLES);
 			shader->setUniform("u_ambient_light", Vector3());
 		}
-	shader->disable();
 
 	//IRRADIANCE
 	if (probes_texture) {
@@ -294,6 +291,9 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		shader->setUniform("u_irr_normal_distance", 0.1f);
 		shader->setUniform("u_num_probes", probes_texture->height);
 		shader->setUniform("u_irr_delta", end_irr - start_irr);
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 		
 		quad->render(GL_TRIANGLES);
 	}
@@ -332,6 +332,34 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		illumination_fbo->color_textures[0]->toViewport();
 	}
 	
+	//VOLUMETRIC
+	if (direct_light)
+	{
+		if (!volumetric_fbo)
+		{
+			volumetric_fbo = new FBO();
+			volumetric_fbo->create(width/2, height/2, 1, GL_RGBA);
+		}
+
+		volumetric_fbo->bind();
+
+		shader = Shader::Get("volumetric");
+		shader->enable();
+		shader->setUniform("u_camera_position", camera->eye);
+		shader->setUniform("u_depth_texture", gbuffers_fbo->depth_texture, 3);
+		shader->setUniform("u_inverse_viewprojection", inv_vp);
+		shader->setUniform("u_air_density", scene->air_density * 0.001f);
+		shader->setUniform("u_iRes", Vector2(1.0 / (float)volumetric_fbo->color_textures[0]->width, 1.0 / (float)volumetric_fbo->color_textures[0]->height));
+		uploadLightToShader(direct_light, shader);
+
+		quad->render(GL_TRIANGLES);
+		volumetric_fbo->unbind();
+		glEnable(GL_BLEND);
+		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+		volumetric_fbo->color_textures[0]->toViewport();
+	}
+
 	if (show_gbuffers)
 	{
 		glDisable(GL_BLEND);
@@ -698,16 +726,13 @@ void Renderer::renderMeshWithMaterialandLighting(const Matrix44 model, Mesh* mes
 	if (normalmap_texture)
 		shader->setUniform("u_texture_normals", normalmap_texture, 3);
 
-	if (!is_rendering_reflections)
-	{
-		shader->setUniform("u_has_reflections", true);
-		shader->setUniform("u_reflections_texture", reflection_fbo->color_textures[0], 4);
-	}
-	else
-		shader->setUniform("u_has_reflections", false);
-
 	//this is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 	shader->setUniform("u_alpha_cutoff", material->alpha_mode == GTR::eAlphaMode::MASK ? material->alpha_cutoff : 0);
+
+	Texture* reflection = skybox;
+	if (probe && !is_rendering_reflections)
+		reflection = probe->texture;
+	shader->setUniform("u_skybox_texture", reflection, 8);
 
 	if (light_mode == SINGLE)
 		renderSinglePass(shader, mesh);
@@ -761,29 +786,6 @@ void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)
 	{
 		for (int i = 0; i < lights.size(); ++i)
 		{
-			/*
-			if (i != 0)
-			{
-				if (material)
-				{
-					if (material->alpha_mode == GTR::eAlphaMode::BLEND)
-						glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-					else
-						glEnable(GL_BLEND);
-				}
-				shader->setVector3("u_ambient_light", Vector3(0, 0, 0));
-
-				if (pipeline == DEFERRED)
-				{
-					shader->setUniform("u_emissive", false);
-					glEnable(GL_BLEND);
-					glBlendFunc(GL_ONE, GL_ONE);
-				}
-				else
-					shader->setUniform("u_emissive", Vector3());
-			}
-			*/
-			
 			if (i == 0)
 			{
 				if (material->alpha_mode == GTR::eAlphaMode::BLEND)
@@ -879,6 +881,7 @@ std::vector<Vector3> GTR::generateSpherePoints(int num, float radius, bool hemi)
 	return points;
 }
 
+//PROBE IRRADIANCE
 void GTR::Renderer::renderProbe(Vector3 pos, float size, float* coeffs)
 { 
 	Camera* camera = Camera::current;
@@ -1012,11 +1015,13 @@ void GTR::Renderer::generateProbes(GTR::Scene* scene)
 	probes_texture->bind();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	probes_texture->unbind();
 
 	//always free memory after allocating it!!!
 	delete[] sh_data;
 }
 
+//SKYBOX
 void GTR::Renderer::renderSkybox(Camera* camera)
 {
 	Mesh* mesh = Mesh::Get("data/meshes/sphere.obj", false);
@@ -1068,4 +1073,79 @@ Texture* GTR::CubemapFromHDRE(const char* filename)
 					(Uint8**)hdre->getFacesh(i), GL_RGBA16F, i);
 		}
 	return texture;
+}
+
+//REFLECTION
+void GTR::Renderer::updateReflectionProbes(Scene* scene)
+{
+	for (int i = 0; i < scene->entities.size(); ++i)
+	{
+		BaseEntity* ent = scene->entities[i];
+		if (!ent->visible || ent->entity_type != eEntityType::REFLECTION_PROBE)
+			continue;
+		ReflectionProbeEntity* probe = (ReflectionProbeEntity*)ent;
+		if (!probe->texture)
+		{
+			probe->texture = new Texture();
+			probe->texture->createCubemap(256, 256, NULL, GL_RGB, GL_UNSIGNED_INT, false);
+		}
+		captureReflectionProbe(scene, probe->texture, probe->model.getTranslation());
+		this->probe = probe;
+	}
+}
+
+void GTR::Renderer::renderReflectionProbes(Scene* scene, Camera* camera)
+{
+	Mesh* mesh = Mesh::Get("data/meshes/sphere.obj", false);
+	Shader* shader = Shader::Get("reflection_probe");
+	shader->enable();
+
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_position", camera->eye);
+
+	glEnable(GL_CULL_FACE);
+	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
+	for (int i = 0; i < scene->entities.size(); ++i)
+	{
+		BaseEntity* ent = scene->entities[i];
+		if (!ent->visible || ent->entity_type != eEntityType::REFLECTION_PROBE)
+			continue;
+		ReflectionProbeEntity* probe = (ReflectionProbeEntity*)ent;
+		if (!probe->texture)
+			continue;
+
+		Matrix44 model = ent->model;
+		model.scale(10, 10, 10);
+		shader->setUniform("u_model", model);
+		shader->setUniform("u_texture", probe->texture, 0);
+
+		mesh->render(GL_TRIANGLES);
+	}
+	shader->disable();
+}
+
+void GTR::Renderer::captureReflectionProbe(GTR::Scene* scene, Texture* texture, Vector3 pos)
+{
+	for (int i = 0; i < 6; ++i)
+	{
+		reflection_probe_fbo->setTexture(texture, i);
+
+		Camera camera;
+		camera.setPerspective(90, 1, 0.1, 1000);
+		Vector3 eye = pos;
+		Vector3 center = pos + cubemapFaceNormals[i][2];
+		Vector3 up = cubemapFaceNormals[i][1];
+		camera.lookAt(eye, center, up);
+		camera.enable();
+
+		reflection_probe_fbo->bind();
+		is_rendering_reflections = true;
+		renderSceneForward(scene, &camera);
+		is_rendering_reflections = false;
+		reflection_probe_fbo->unbind();
+
+		texture->generateMipmaps();
+	}
 }

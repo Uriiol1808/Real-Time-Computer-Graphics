@@ -69,6 +69,10 @@ Application::Application(int window_width, int window_height, SDL_Window* window
 	if (!scene->load("data/scene.json"))
 		exit(1);
 
+	GTR::ReflectionProbeEntity* probe = new GTR::ReflectionProbeEntity();
+	probe->model.setTranslation(40, 40, 40);
+	scene->addEntity(probe);
+
 	camera->lookAt(scene->main_camera.eye, scene->main_camera.center, Vector3(0, 1, 0));
 	camera->fov = scene->main_camera.fov;
 
@@ -251,7 +255,9 @@ void Application::renderDebugGUI(void)
 	ImGui::Checkbox("3 - GBuffers", &renderer->show_gbuffers);
 	ImGui::Checkbox("4 - HDR", &renderer->show_hdr);
 	ImGui::Checkbox("5 - SSAO", &renderer->show_ssao);
+	//Lab3
 	ImGui::Checkbox("6 - Irradiance texture", &renderer->show_probes_texture);
+	ImGui::SliderFloat("Air Density", &scene->air_density, 0.0, 10.0);
 
 	//add info to the debug panel about the camera
 	if (ImGui::TreeNode(camera, "Camera")) {
@@ -302,6 +308,7 @@ void Application::onKeyDown( SDL_KeyboardEvent event )
 		//Lab3
 		case SDLK_SPACE: renderer->generateProbes(scene); break;
 		case SDLK_6: renderer->show_probes_texture = !renderer->show_probes_texture; break;
+		case SDLK_7: renderer->updateReflectionProbes(scene); break;
 
 		case SDLK_F5: Shader::ReloadAll(); break;
 		case SDLK_F6:

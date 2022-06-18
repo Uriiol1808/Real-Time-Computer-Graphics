@@ -4,7 +4,9 @@
 #include "framework.h"
 #include "camera.h"
 #include "fbo.h"
+#include "texture.h"
 #include <string>
+#include <map>
 
 //forward declaration
 class cJSON; 
@@ -13,8 +15,6 @@ class Texture;
 
 //our namespace
 namespace GTR {
-
-
 
 	enum eEntityType {
 		NONE = 0,
@@ -61,6 +61,16 @@ namespace GTR {
 		virtual void configure(cJSON* json);
 	};
 
+	class ReflectionProbeEntity : public GTR::BaseEntity
+	{
+	public:
+		Texture* texture;
+
+		ReflectionProbeEntity();
+		virtual void renderInMenu() {}
+		virtual void configure(cJSON* json) {}
+	};
+
 	//contains all entities of the scene
 	class Scene
 	{
@@ -69,15 +79,18 @@ namespace GTR {
 
 		Vector3 background_color;
 		Vector3 ambient_light;
+		float air_density;
 		Camera main_camera;
 
 		Scene();
 
 		std::string filename;
 		std::vector<BaseEntity*> entities;
+		std::map<std::string,BaseEntity*> entities_by_name;
 
 		void clear();
 		void addEntity(BaseEntity* entity);
+		BaseEntity* getEntityByName(std::string name);
 
 		bool load(const char* filename);
 		BaseEntity* createEntity(std::string type);

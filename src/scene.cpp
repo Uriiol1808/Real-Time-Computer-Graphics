@@ -10,7 +10,7 @@ GTR::Scene* GTR::Scene::instance = NULL;
 GTR::Scene::Scene()
 {
 	instance = this;
-	
+	air_density = 1.0;
 }
 
 void GTR::Scene::clear()
@@ -26,7 +26,18 @@ void GTR::Scene::clear()
 
 void GTR::Scene::addEntity(BaseEntity* entity)
 {
-	entities.push_back(entity); entity->scene = this;
+	entities.push_back(entity);
+	entity->scene = this;
+	if(entity->name.size())
+		entities_by_name[entity->name] = entity;
+}
+
+GTR::BaseEntity* GTR::Scene::getEntityByName(std::string name)
+{
+	auto it = entities_by_name.find(name);
+	if (it == entities_by_name.end())
+		return NULL;
+	return it->second;
 }
 
 bool GTR::Scene::load(const char* filename)
@@ -247,4 +258,10 @@ void GTR::LightEntity::renderInMenu()
 	ImGui::DragFloat("Shadow_bias", &shadow_bias);
 	
 #endif
+}
+
+GTR::ReflectionProbeEntity::ReflectionProbeEntity()
+{
+	entity_type = REFLECTION_PROBE;
+	texture = NULL;
 }

@@ -9,8 +9,23 @@
 		{
 			"name":"floor",
 			"type":"PREFAB",
-			"filename":"prefabs/floor.glb",
-			"position":[0,0,0]
+			"filename":"prefabs/road/road.gltf",
+			"position":[0,0,0],
+			"scale":[10,10,10]
+		},
+		{
+			"name":"floor2",
+			"type":"PREFAB",
+			"filename":"prefabs/road/road.gltf",
+			"position":[0,0,300],
+			"scale":[10,10,10]
+		},
+		{
+			"name":"floor3",
+			"type":"PREFAB",
+			"filename":"prefabs/road/road.gltf",
+			"position":[0,0,-300],
+			"scale":[10,10,10]
 		},
 		{
 			"name":"car1",
@@ -32,6 +47,14 @@
 			"filename":"prefabs/house_test/scene.gltf",
 			"position":[300,0,200],
 			"scale":[0.4,0.4,0.4]
+		},
+		{
+			"name":"sign",
+			"type":"PREFAB",
+			"filename":"prefabs/sign.glb",
+			"position":[118,48,-400],
+			"angle":120,
+			"scale":[60,60,60]
 		},
 		{
 			"name":"house",
@@ -95,9 +118,9 @@
 			"position":[150,300,50],
 			"target":[-80,0,-50],
 			"color":[0.1,0.2,0.4],
-			"intensity":1.5,
+			"intensity":3,
 			"area_size":1500,
-			"max_dist":1000,
+			"max_dist":2000,
 			"cast_shadows": true,
 			"light_type":"DIRECTIONAL"
 		}

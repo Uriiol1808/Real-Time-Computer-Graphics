@@ -97,6 +97,12 @@ namespace GTR {
 		Texture* skybox;
 		FBO* reflection_fbo;
 		bool is_rendering_reflections;
+		FBO* reflection_probe_fbo;
+		ReflectionProbeEntity* probe;
+
+		//VOLUMETRIC
+		FBO* volumetric_fbo;
+		LightEntity* direct_light;
 
 		static const int max_lights = 10;
 		
@@ -140,6 +146,10 @@ namespace GTR {
 
 		void renderSkybox(Camera* camera);
 		void renderSceneForward(GTR::Scene* scene, Camera* camera);
+
+		void renderReflectionProbes(GTR::Scene* scene, Camera* camera);
+		void updateReflectionProbes(GTR::Scene* scene);
+		void captureReflectionProbe(GTR::Scene* scene, Texture* texture, Vector3 pos);
 	};
 
 	Texture* CubemapFromHDRE(const char* filename);
