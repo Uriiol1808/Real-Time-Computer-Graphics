@@ -255,9 +255,16 @@ void Application::renderDebugGUI(void)
 	ImGui::Checkbox("3 - GBuffers", &renderer->show_gbuffers);
 	ImGui::Checkbox("4 - HDR", &renderer->show_hdr);
 	ImGui::Checkbox("5 - SSAO", &renderer->show_ssao);
-	//Lab3
+	//LAB3
 	ImGui::Checkbox("6 - Irradiance texture", &renderer->show_probes_texture);
 	ImGui::SliderFloat("Air Density", &scene->air_density, 0.0, 10.0);
+	//POSTFX
+	ImGui::SliderFloat("Contrast", &renderer->contrast, 0.0, 5.0);
+	ImGui::SliderFloat("Saturation", &renderer->saturation, 0.0, 2.0);
+	ImGui::SliderFloat("Vigneting", &renderer->vigneting, 0.0, 2.0); 
+	ImGui::SliderFloat("Debug factor", &renderer->debug_factor, 0.0, 2.0);
+	ImGui::SliderFloat("Debug factor 2", &renderer->debug_factor2, 0.0, 2.0);
+	ImGui::SliderFloat("Threshold", &renderer->threshold, 0.0, 2.0);
 
 	//add info to the debug panel about the camera
 	if (ImGui::TreeNode(camera, "Camera")) {

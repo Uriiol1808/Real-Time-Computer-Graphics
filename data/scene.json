@@ -7,6 +7,13 @@
 	"camera_fov":60,
 	"entities":[
 		{
+			"name":"decal",
+			"type":"DECAL",
+			"position":[0,0,0],
+			"scale":[40,10,20],
+			"texture":"data/textures/decal.png"
+		},
+		{
 			"name":"floor",
 			"type":"PREFAB",
 			"filename":"prefabs/road/road.gltf",
@@ -124,5 +131,6 @@
 			"cast_shadows": true,
 			"light_type":"DIRECTIONAL"
 		}
+
 	]
 }

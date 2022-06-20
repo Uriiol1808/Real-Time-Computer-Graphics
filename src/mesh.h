@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 
+
 class Shader; //for binding
 class Image; //for displace
 class Skeleton; //for skinned meshes
@@ -109,7 +110,7 @@ public:
 	bool testSphereCollision(Matrix44 model, Vector3 center, float radius, Vector3& collision, Vector3& normal);
 
 	//loader
-	static Mesh* Get(const char* filename, bool bFromNetwork, bool skip_load = false);
+	static Mesh* Get(const char* filename, bool bFromNetwork = false, bool skip_load = false);
 	static void Release();
 	void registerMesh(std::string name);
 
@@ -117,7 +118,7 @@ public:
 	void createQuad(float center_x, float center_y, float w, float h, bool flip_uvs);
 	void createPlane(float size);
 	void createSubdividedPlane(float size = 1, int subdivisions = 256, bool centered = false);
-	void createCube();
+	void createCube(Vector3 size);
 	void createWireBox();
 	void createGrid(float dist);
 	void displace(Image* heightmap, float altitude);

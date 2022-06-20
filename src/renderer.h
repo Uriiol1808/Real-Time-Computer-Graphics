@@ -6,6 +6,7 @@
 #include "fbo.h"
 #include "material.h"
 #include "sphericalharmonics.h"
+#include "mesh.h"
 
 //forward declarations
 class Camera;
@@ -104,6 +105,25 @@ namespace GTR {
 		FBO* volumetric_fbo;
 		LightEntity* direct_light;
 
+		//DECALS
+		std::vector<GTR::DecalEntity*> decals;
+		FBO* decals_fbo;
+		Mesh cube;
+
+		//POSTFX
+		Texture* postFX_textureA;
+		Texture* postFX_textureB;
+		Texture* postFX_textureC;
+		Texture* postFX_textureD;
+
+		float contrast;
+		float saturation;
+		float vigneting;
+		float debug_factor;
+		float debug_factor2;
+		float threshold; 
+		Matrix44 vp_matrix_last;
+
 		static const int max_lights = 10;
 		
 		//add here your functions
@@ -150,6 +170,9 @@ namespace GTR {
 		void renderReflectionProbes(GTR::Scene* scene, Camera* camera);
 		void updateReflectionProbes(GTR::Scene* scene);
 		void captureReflectionProbe(GTR::Scene* scene, Texture* texture, Vector3 pos);
+
+		void applyFX(Texture* color_texture, Texture* depth_texture, Camera* camera);
+
 	};
 
 	Texture* CubemapFromHDRE(const char* filename);

@@ -57,6 +57,22 @@ Renderer::Renderer()
 	//VOLUMETRIC
 	volumetric_fbo = NULL;
 	direct_light = NULL;
+
+	//DECALS
+	decals_fbo = NULL;
+	cube.createCube(Vector3(1.0, 1.0, 1.0));
+
+	//POSTFX
+	postFX_textureA = NULL;
+	postFX_textureB = NULL;
+	postFX_textureC = NULL;
+	postFX_textureD = NULL;
+	contrast = 1.0;
+	saturation = 1.0;
+	vigneting = 0.0;
+	debug_factor = 1.0;
+	debug_factor2 = 1.0;
+	threshold = 0.9;
 }
 
 void Renderer::renderScene(GTR::Scene* scene, Camera* camera)
@@ -71,6 +87,7 @@ void Renderer::renderSceneForward(GTR::Scene* scene, Camera* camera)
 {
 	lights.clear();
 	render_calls.clear();
+	decals.clear();
 
 	//Collect info from entities
 	for (int i = 0; i < scene->entities.size(); ++i)
@@ -94,6 +111,12 @@ void Renderer::renderSceneForward(GTR::Scene* scene, Camera* camera)
 			lights.push_back(light);
 			if (light->light_type == eLightType::DIRECTIONAL)
 				direct_light = light;
+		}
+
+		//is a decal!
+		if (ent->entity_type == DECAL)
+		{
+			decals.push_back((DecalEntity*)ent);
 		}
 	}
 
@@ -158,6 +181,8 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	int height = Application::instance->window_height;
 
 	Mesh* quad = Mesh::getQuad(); //2 triangulos que forman un cuadraro en clip space (-1,1 a 1,1)
+	Shader* shader = NULL;
+
 	Matrix44 inv_vp = camera->viewprojection_matrix;
 	inv_vp.inverse();
 
@@ -167,26 +192,38 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		gbuffers_fbo = new FBO();
 		illumination_fbo = new FBO();
 		ssao_fbo = new FBO();
+		decals_fbo = new FBO();
 
 		//create 3 textures of 4 components
 		gbuffers_fbo->create(width, height,
 			3, 				
 			GL_RGBA, 		
-			GL_FLOAT,		
+			GL_UNSIGNED_BYTE,
 			true);			
 
 		//create 1 textures of 3 components
 		illumination_fbo->create(width, height,
 			1, 					
 			GL_RGB, 			
-			GL_UNSIGNED_BYTE,	
+			GL_FLOAT,	
 			false);				
 		
 		ssao_fbo->create(width, height,
 			1,
-			GL_RGB,
+			GL_LUMINANCE,
 			GL_UNSIGNED_BYTE,
 			false);
+
+		decals_fbo->create(width, height,
+			3,
+			GL_RGBA,
+			GL_UNSIGNED_BYTE,
+			true);
+
+		postFX_textureA = new Texture(width, height, GL_RGB, GL_FLOAT, false);
+		postFX_textureB = new Texture(width, height, GL_RGB, GL_FLOAT, false);
+		postFX_textureC = new Texture(width, height, GL_RGB, GL_FLOAT, false);
+		postFX_textureD = new Texture(width, height, GL_RGB, GL_FLOAT, false);
 	}
 
 	//------GBUFFERS-------
@@ -206,14 +243,62 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	}
 
 	gbuffers_fbo->unbind();
-	
+
+	//-------DECALS------
+	gbuffers_fbo->color_textures[0]->copyTo(decals_fbo->color_textures[0]);
+	gbuffers_fbo->color_textures[1]->copyTo(decals_fbo->color_textures[1]);
+	gbuffers_fbo->color_textures[2]->copyTo(decals_fbo->color_textures[2]);
+
+	decals_fbo->bind();
+	gbuffers_fbo->depth_texture->copyTo(NULL);
+	decals_fbo->unbind();
+
+	if (decals.size())
+	{
+		gbuffers_fbo->bind();
+		shader = Shader::Get("decal");
+		shader->enable();
+
+		shader->setUniform("u_gb0_texture", decals_fbo->color_textures[0], 0);
+		shader->setUniform("u_gb1_texture", decals_fbo->color_textures[1], 1);
+		shader->setUniform("u_gb2_texture", decals_fbo->color_textures[2], 2);
+		shader->setUniform("u_depth_texture", decals_fbo->depth_texture, 3);
+
+		shader->setUniform("u_camera_position", camera->eye);
+		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		shader->setUniform("u_inverse_viewprojection", inv_vp);
+		shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		for (int i = 0; i < decals.size(); i++)
+		{
+			DecalEntity* decal = decals[i];
+
+			Texture* decal_texture = Texture::Get(decal->texture.c_str());
+			if (!decal_texture) 
+				continue;
+			shader->setUniform("u_decal_texture", decal_texture, 4);
+			shader->setUniform("u_model", decal->model);
+
+			Matrix44 imodel = decal->model;
+			imodel.inverse(); 
+			shader->setUniform("u_imodel", imodel); //World space to local
+			cube.render(GL_TRIANGLES);
+		}
+		glDisable(GL_BLEND);
+
+		gbuffers_fbo->unbind();
+	}
+
+
 	//-------SSAO-------
 	ssao_fbo->bind();
 
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
 
-	Shader* shader = NULL;
 	if (ssao_plus) {shader = Shader::Get("ssao_plus");}
 	else { shader = Shader::Get("ssao"); }
 	
@@ -233,14 +318,18 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	//-------ILLUMINATION-------
 	illumination_fbo->bind();
 
-	glClear(GL_COLOR_BUFFER_BIT);
+	
 	glDisable(GL_DEPTH_TEST);
+	glClearColor(0, 0, 0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	gbuffers_fbo->depth_texture->copyTo(NULL);
 
 	//we need a fullscreen quad
 	shader = Shader::Get("deferred");
 	shader->enable();
 
-	GbuffersShader(shader, scene, camera, width, height);
+	GbuffersShader(shader, scene, camera, width, height); //gb0, gb1, gb2, depth
 	shader->setUniform("u_ssao_texture", ssao_fbo->color_textures[0], 4);
 
 	shader->setUniform("u_camera_position", camera->eye);
@@ -252,7 +341,6 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	{
 		shader->setUniform("u_light_color", Vector3());
 		quad->render(GL_TRIANGLES);
-		//sphere->render(GL_TRIANGLES);
 	}
 	else
 		for (int i = 0; i < lights.size(); ++i)
@@ -269,9 +357,10 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 			//do the draw call that renders the mesh into the screen
 			quad->render(GL_TRIANGLES);
-			//sphere->render(GL_TRIANGLES);
+
 			shader->setUniform("u_ambient_light", Vector3());
 		}
+	shader->disable();
 
 	//IRRADIANCE
 	if (probes_texture) {
@@ -312,8 +401,9 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 	}
 
 	illumination_fbo->unbind();
-
 	glDisable(GL_BLEND);
+
+	applyFX(illumination_fbo->color_textures[0], gbuffers_fbo->depth_texture, camera);
 
 	//-------HDR - TONE MAPPING-------	
 	if (show_hdr)
@@ -328,12 +418,12 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 		illumination_fbo->color_textures[0]->toViewport(shader);
 	}
-	else {
-		illumination_fbo->color_textures[0]->toViewport();
-	}
+	//else {
+	//	illumination_fbo->color_textures[0]->toViewport();
+	//}
 	
-	//VOLUMETRIC
-	if (direct_light)
+	//-------VOLUMETRIC-------
+	if (!direct_light)
 	{
 		if (!volumetric_fbo)
 		{
@@ -358,6 +448,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 		volumetric_fbo->color_textures[0]->toViewport();
+		glDisable(GL_BLEND);
 	}
 
 	if (show_gbuffers)
@@ -384,6 +475,96 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		glDisable(GL_BLEND);
 		ssao_fbo->color_textures[0]->toViewport();
 	}
+}
+
+void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Camera* camera)
+{
+	Texture* current_texture = color_texture;
+
+	Matrix44 inv_vp = camera->viewprojection_matrix;
+	inv_vp.inverse();
+
+	FBO* fbo = Texture::getGlobalFBO(postFX_textureA);
+	fbo->bind();
+	Shader* fxshader = Shader::Get("motionblur");
+	fxshader->enable();
+	fxshader->setUniform("u_depth_texture", depth_texture, 1);
+	fxshader->setUniform("u_inverse_viewprojection", inv_vp);
+	fxshader->setUniform("u_viewprojection_old", vp_matrix_last);
+	current_texture->toViewport(fxshader);
+	fbo->unbind();
+	current_texture = postFX_textureA;
+	std::swap(postFX_textureA, postFX_textureB);
+
+	vp_matrix_last = camera->viewprojection_matrix;
+
+	/*
+	//Grayscale
+	FBO* fbo = Texture::getGlobalFBO(postFX_textureA);
+	fbo->bind();
+	Shader* fxshader = Shader::Get("greyscale");
+	fxshader->enable();
+	fxshader->setUniform("u_saturation", saturation);
+	fxshader->setUniform("u_vigneting", vigneting);
+	current_texture->toViewport(fxshader);
+	fbo->unbind();
+	current_texture = postFX_textureA;
+	std::swap(postFX_textureA, postFX_textureB);
+
+	fbo = Texture::getGlobalFBO(postFX_textureC); //Grayscale image
+	fbo->bind();
+	fxshader = Shader::Get("contrast");
+	fxshader->enable();
+	fxshader->setUniform("u_intensity", contrast);
+	current_texture->toViewport(fxshader);
+	fbo->unbind();
+	current_texture = postFX_textureC;
+
+	fbo = Texture::getGlobalFBO(postFX_textureD); //Threshold
+	fbo->bind();
+	fxshader = Shader::Get("threshold");
+	fxshader->enable();
+	fxshader->setUniform("u_threshold", threshold);
+	current_texture->toViewport(fxshader);
+	fbo->unbind();
+	current_texture = postFX_textureD;
+
+	//Blur
+	for (int i = 0; i < 4; ++i)
+	{
+		fbo = Texture::getGlobalFBO(postFX_textureA);
+		fbo->bind();
+		fxshader = Shader::Get("blur");
+		fxshader->enable();
+		fxshader->setUniform("u_intensity", 1.0f);
+		fxshader->setUniform("u_offset", vec2(pow(1.0f, i) / current_texture->width, 0.0) * debug_factor); //Horizontal
+		current_texture->toViewport(fxshader);
+		fbo->unbind();
+
+		fbo = Texture::getGlobalFBO(postFX_textureB);
+		fbo->bind();
+		fxshader = Shader::Get("blur");
+		fxshader->enable();
+		fxshader->setUniform("u_intensity", 1.0f);
+		fxshader->setUniform("u_offset", vec2(0.0f, pow(1.0f, i) / current_texture->height) * debug_factor); //Vertical
+		postFX_textureA->toViewport(fxshader);
+		fbo->unbind();
+		current_texture = postFX_textureB;
+	}
+
+	fbo = Texture::getGlobalFBO(postFX_textureA);
+	fbo->bind();
+	fxshader = Shader::Get("mix");
+	fxshader->enable();
+	fxshader->setUniform("u_intensity", debug_factor2);
+	fxshader->setUniform("u_textureB", postFX_textureC, 1);
+	current_texture->toViewport(fxshader);
+	fbo->unbind();
+	current_texture = postFX_textureA;
+	std::swap(postFX_textureA, postFX_textureB);
+	*/
+
+	current_texture->toViewport();
 }
 
 void Renderer::GbuffersShader(Shader* shader, Scene* scene, Camera* camera, int& width, int& height)
@@ -500,11 +681,10 @@ void Renderer::renderNode(const Matrix44& prefab_model, GTR::Node* node, Camera*
 		{
 			//render node mesh
 			RenderCall rc;
-			Vector3 nodepos = node_model.getTranslation();
 			rc.material = node->material;
 			rc.model = node_model;
 			rc.mesh = node->mesh;
-			rc.distance_to_camera = nodepos.distance(camera->eye);
+			rc.distance_to_camera = camera->eye.distance(node->mesh->box.center);
 			rc.world_bounding = world_bounding;
 			render_calls.push_back(rc);
 		}
@@ -770,6 +950,10 @@ void Renderer::uploadLightToShader(GTR::LightEntity* light, Shader* shader)
 	}
 	else
 		shader->setUniform("u_light_cast_shadows", 0);
+
+	if (light->light_type == DIRECTIONAL) {
+		shader->setVector3("u_light_direction", light->model.frontVector());
+	}
 }
 
 void Renderer::renderMultiPass(Shader* shader, Mesh* mesh, Material* material)

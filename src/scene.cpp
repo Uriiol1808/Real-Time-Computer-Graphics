@@ -141,6 +141,8 @@ GTR::BaseEntity* GTR::Scene::createEntity(std::string type)
 		return new GTR::PrefabEntity();
 	else if (type == "LIGHT")
 		return new GTR::LightEntity();
+	else if (type == "DECAL")
+		return new GTR::DecalEntity();
     return NULL;
 }
 
@@ -153,9 +155,6 @@ void GTR::BaseEntity::renderInMenu()
 	ImGuiMatrix44(model, "Model");
 #endif
 }
-
-
-
 
 GTR::PrefabEntity::PrefabEntity()
 {
@@ -264,4 +263,18 @@ GTR::ReflectionProbeEntity::ReflectionProbeEntity()
 {
 	entity_type = REFLECTION_PROBE;
 	texture = NULL;
+}
+
+//DECALS
+GTR::DecalEntity::DecalEntity()
+{
+	entity_type = eEntityType::DECAL;
+}
+
+void GTR::DecalEntity::configure(cJSON* json)
+{
+	if (cJSON_GetObjectItem(json, "texture"))
+	{
+		texture = cJSON_GetObjectItem(json, "texture")->valuestring;
+	}
 }
