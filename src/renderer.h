@@ -119,10 +119,19 @@ namespace GTR {
 		float contrast;
 		float saturation;
 		float vigneting;
-		float debug_factor;
-		float debug_factor2;
+		float blur;
+		float mix_factor;
 		float threshold; 
 		Matrix44 vp_matrix_last;
+
+		float minDistance;
+		float maxDistance;
+		float distortion;
+		float noise_amount;
+		float chroma;
+
+		float bloom_threshold;
+		float bloom_soft_threshold;
 
 		static const int max_lights = 10;
 		
@@ -158,7 +167,7 @@ namespace GTR {
 
 		void renderForward(Camera* camera, GTR::Scene* scene);
 		void renderDeferred(Camera* camera, GTR::Scene* scene);
-		void GbuffersShader(Shader* shader, Scene* scene, Camera* camera, int& width, int& height);
+		void GbuffersShader(Shader* shader, Scene* scene, Camera* camera);
 
 		void renderProbe(Vector3 pos, float size, float* coeffs);
 		void captureProbe(sProbe& probe, GTR::Scene* scene);

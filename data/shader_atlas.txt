@@ -33,7 +33,14 @@ contrast quad.vs contrast.fs
 blur quad.vs blur.fs
 mix quad.vs mix.fs
 threshold quad.vs threshold.fs
+dof quad.vs dof.fs
+bloom quad.vs bloom.fs
+fxaa quad.vs fxaa.fs
+lut quad.vs lut.fs
+lens_distortion quad.vs lens_distortion.fs
+chromatic_aberration quad.vs chromatic_aberration.fs
 motionblur quad.vs motionblur.fs
+grain quad.vs grain.fs
 
 \normal_func
 mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
@@ -77,6 +84,9 @@ float getConeFactor (vec3 L)
 
 \PBR
 
+#define RECIPROCAL_PI 0.3183098861837697
+const float PI = 3.14159265358979323846;
+
 // Fresnel term with scalar optimization(f90=1)
 float F_Schlickf90( const in float VoH, const in float f0, float f90)
 {
@@ -91,8 +101,6 @@ vec3 F_Schlick( const in float VoH, const in vec3 f0)
 	return f0 + (vec3(1.0) - f0) * f;
 }
 
-#define RECIPROCAL_PI 0.3183098861837697
-
 // Diffuse Reflections: Disney BRDF using retro-reflections using F term, this is much more complex!!
 float Fd_Burley ( const in float NoV, const in float NoL, const in float LoH, const in float linearRoughness)
 {
@@ -102,7 +110,6 @@ float Fd_Burley ( const in float NoV, const in float NoL, const in float LoH, co
         return lightScatter * viewScatter * RECIPROCAL_PI;
 }
 
-const float PI = 3.141592;
 // Normal Distribution Function using GGX Distribution
 float D_GGX (	const in float NoH, const in float linearRoughness )
 {
@@ -150,7 +157,6 @@ vec3 degamma(vec3 c) { return pow(c,vec3(2.2)); }
 vec3 gamma(vec3 c){ return pow(c,vec3(1.0/2.2)); }
 
 \SH
-
 const float Pi = 3.141592654;
 const float CosineA0 = Pi;
 const float CosineA1 = (2.0 * Pi) / 3.0;
@@ -187,6 +193,96 @@ vec3 ComputeSHIrradiance(in vec3 normal, in SH9Color sh)
 	return irradiance;
 }
 
+\irradiance
+
+vec3 computeIrr(vec3 local_indices, vec3 N, vec3 irr_dims, float num_probes, sampler2D probes_texture){
+	//compute in which row is the probe stored
+	float row = local_indices.x + local_indices.y * irr_dims.x + local_indices.z * irr_dims.x * irr_dims.y;
+
+	//find the UV.y coord of that row in the probes texture
+	float row_uv = (row + 1.0) / (num_probes + 1.0);
+	
+	SH9Color sh;
+	
+	//fill the coefficients
+	const float d_uvx = 1.0 / 9.0;
+	for(int i = 0; i < 9; ++i)
+	{
+		vec2 coeffs_uv = vec2( (float(i)+0.5) * d_uvx, row_uv );
+		sh.c[i] = texture( probes_texture, coeffs_uv).xyz;
+	}
+
+	//now we can use the coefficients to compute the irradiance
+	vec3 irradiance = ComputeSHIrradiance( N, sh );
+
+	return irradiance;
+}
+
+vec3 computeIrradiance(vec3 irr_end, vec3 irr_start, vec3 worldpos, vec3 N, float irr_normal_distance, vec3 irr_delta, vec3 irr_dims, float num_probes, sampler2D probes_texture){
+	//computing nearest probe index based on world position
+	vec3 irr_range = irr_end - irr_start;
+	vec3 irr_local_pos = clamp( worldpos - irr_start + N * irr_normal_distance, vec3(0.0), irr_range );
+
+	//convert from world pos to grid pos
+	vec3 irr_norm_pos = irr_local_pos / irr_delta;
+
+	//round values as we cannot fetch between rows for now
+	vec3 local_indices = floor( irr_norm_pos );
+	
+	//now we have the interpolation factors
+	vec3 factors = irr_norm_pos - local_indices;
+
+	//local_indices points to Left,Bottom,Far
+	vec3 indicesLBF = local_indices;
+	//example for right bottom far index
+	vec3 indicesRBF = local_indices;
+	indicesRBF.x += 1; //from left to right
+
+	vec3 indicesLTF = local_indices;
+	indicesLTF.y += 1; 
+	
+	vec3 indicesRTF = local_indices;
+	indicesRTF.x += 1; 
+	indicesRTF.y += 1; 
+
+	vec3 indicesLBN = local_indices;
+	indicesLBN.z += 1; 
+
+	vec3 indicesRBN = local_indices;
+	indicesRBN.x += 1; 
+	indicesRBN.z += 1; 
+
+	vec3 indicesLTN = local_indices;
+	indicesLTN.y += 1; 
+	indicesLTN.z += 1; 
+	
+	vec3 indicesRTN = local_indices;
+	indicesRTN.x += 1; 
+	indicesRTN.y += 1; 
+	indicesRTN.z += 1; 
+
+	//compute irradiance for every corner
+	vec3 irrLBF = computeIrr( indicesLBF, N, irr_dims, num_probes, probes_texture);
+	vec3 irrRBF = computeIrr( indicesRBF, N, irr_dims, num_probes, probes_texture);
+	vec3 irrLTF = computeIrr( indicesLTF, N, irr_dims, num_probes, probes_texture);
+	vec3 irrRTF = computeIrr( indicesRTF, N, irr_dims, num_probes, probes_texture);
+	vec3 irrLBN = computeIrr( indicesLBN, N, irr_dims, num_probes, probes_texture);
+	vec3 irrRBN = computeIrr( indicesRBN, N, irr_dims, num_probes, probes_texture);
+	vec3 irrLTN = computeIrr( indicesLTN, N, irr_dims, num_probes, probes_texture);
+	vec3 irrRTN = computeIrr( indicesRTN, N, irr_dims, num_probes, probes_texture);
+
+	vec3 irrTF = mix( irrLTF, irrRTF, factors.x );
+	vec3 irrBF = mix( irrLBF, irrRBF, factors.x );
+	vec3 irrTN = mix( irrLTN, irrRTN, factors.x );
+	vec3 irrBN = mix( irrLBN, irrRBN, factors.x );
+
+	vec3 irrT = mix( irrTF, irrTN, factors.z );
+	vec3 irrB = mix( irrBF, irrBN, factors.z );
+
+	vec3 irr = mix( irrB, irrT, factors.y );
+	
+	return irr;
+}
 
 \basic.vs
 
@@ -619,6 +715,7 @@ uniform vec3 u_ambient_light;
 uniform vec3 u_light_position;
 uniform vec3 u_light_color;
 uniform vec3 u_light_direction;
+uniform vec3 u_light_vector;
 
 uniform float u_light_max_dist;
 uniform float u_light_intensity;
@@ -681,7 +778,7 @@ void main()
 
 	if (u_light_type == 2) //DIRECTIONAL
 	{
-		L = normalize(-u_light_direction);
+		L = normalize(u_light_vector);
 		
 		if (u_light_cast_shadows == 1)
 		{
@@ -871,10 +968,20 @@ uniform vec3 u_light_position;
 uniform vec3 u_light_cone_exp;
 uniform vec3 u_light_direction;
 uniform float u_light_intensity;
+uniform vec3 u_light_vector;
 
 uniform vec3 u_ambient_light;
 uniform vec3 u_camera_position;
 uniform float u_light_max_dist;
+
+uniform sampler2D u_irr_texture;
+uniform vec3 u_irr_start;
+uniform vec3 u_irr_end;
+uniform vec3 u_irr_dim;
+
+uniform float u_irr_normal_distance;
+uniform float u_num_probes;
+uniform vec3 u_irr_delta;
 
 out vec4 FragColor;
 
@@ -886,32 +993,43 @@ out vec4 FragColor;
 #include "testShadowmap"
 #include "PBR"
 #include "linear_space"
+#include "SH"
+#include "irradiance"
 
 void main()
 {
 	vec2 uv = gl_FragCoord.xy * u_iRes.xy;
 	
-	//Color
 	vec4 gb0_color = texture(u_gb0_texture, uv); //Color
 	vec4 gb1_color = texture(u_gb1_texture, uv); //Normal
 	vec4 gb2_color = texture(u_gb2_texture, uv); //Extra
 
+	vec3 occ_met_roug = vec3(gb0_color.w, gb1_color.w, gb2_color.w);
+
+	float occlusion = occ_met_roug.x;
+	float roughness = occ_met_roug.y;
+	float metalness = occ_met_roug.z;
+
 	float depth = texture (u_depth_texture, uv).x;
-	vec4 screen_pos = vec4(uv.x*2.0-1.0, uv.y*2.0-1.0, depth*2.0-1.0, 1.0);
+	if (depth == 1.0) discard;
+	vec4 screen_pos = vec4(uv.x * 2.0 - 1.0, uv.y * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
 	vec4 proj_worldpos = u_inverse_viewprojection * screen_pos;
 	vec3 world_position = proj_worldpos.xyz / proj_worldpos.w;
 
-	float ao_factor = texture(u_ssao_texture, uv).x;
-	ao_factor = pow(ao_factor, 3.0);
-	vec3 ambient = degamma(u_ambient_light);
-
-	//Normal
 	vec3 N = normalize(gb1_color.xyz * 2.0 - vec3(1.0));
-
 	vec4 color = vec4(degamma(gb0_color.xyz), 1.0);
-	if(color.a < u_alpha_cutoff)
-		discard;
+	if(color.a < u_alpha_cutoff) discard;
 
+	//SSAO +
+	float ao_factor = texture(u_ssao_texture, uv).x;
+	ao_factor *= pow(ao_factor, 2.0);
+
+	vec3 ambient = u_ambient_light * ao_factor;
+
+	//IRRADIANCE
+	vec3 irradiance = vec3(1.0);
+	irradiance = computeIrradiance(u_irr_end, u_irr_start, world_position, N, u_irr_normal_distance, u_irr_delta, u_irr_dim, u_num_probes, u_irr_texture);
+	
 	vec3 L;
 	float shadow_factor = 1.0;
 	float coneFactor = 1.0;
@@ -919,8 +1037,7 @@ void main()
 
 	if (u_light_type == 2) //DIRECTIONAL
 	{
-		L = normalize(-u_light_direction);
-		
+		L = normalize(u_light_vector);
 		if (u_light_cast_shadows == 1)
 		{
 			shadow_factor = testShadowmap(world_position);
@@ -928,9 +1045,8 @@ void main()
 	}
 	else
 	{
-		L = u_light_position - world_position;
-		float light_dist = length(L);
-		L = normalize(L);
+		L = normalize(u_light_position - world_position);
+		float light_dist = length(u_light_position - world_position);
 
 		att_factor = u_light_max_dist - light_dist;
 		att_factor /= u_light_max_dist;
@@ -939,7 +1055,6 @@ void main()
 
 		if (u_light_type == 1) //SPOT
 		{	
-			//L = normalize(u_light_position - world_position);
 			if (u_light_cone_exp.z > 0.0)
 			{
 				float cos_angle = dot(normalize (u_light_direction), -L);
@@ -951,12 +1066,12 @@ void main()
 					{
 						shadow_factor = testShadowmap(world_position);
 					}
-				} else {coneFactor = 0.0;}
+				}else{coneFactor = 0.0;} 
 			} 
 		}
 	}
 
-	vec3 V = normalize(u_light_position - world_position);
+	vec3 V = normalize(u_camera_position - world_position);
 	vec3 H = normalize(L+V);
 
 	float NoL = clamp(dot(N,L),0.0, 1.0);
@@ -965,33 +1080,33 @@ void main()
 	float LoH = clamp(dot(L,H),0.0, 1.0);
 
 	//we compute the reflection in base to the color and the metalness
-	vec3 f0 = mix( vec3(0.5), color.xyz, gb1_color.a );
+	vec3 f0 = mix( vec3(0.5), color.xyz, metalness);
 
 	//metallic materials do not have diffuse
-	vec3 diffuseColor = (1.0 - gb1_color.a) * color.xyz;
+	vec3 diffuseColor = (1.0 - metalness) * color.xyz;
 
 	//compute the specular
-	vec3 Fr_d = specularBRDF( gb2_color.a, f0, NoH, NoV, NoL, LoH);
+	vec3 Fr_d = specularBRDF( roughness, f0, NoH, NoV, NoL, LoH);
 
 	// Here we use the Burley, but you can replace it by the Lambert.
-	float linearRoughness = pow(gb2_color.a, 2.0);
-	vec3 Fd_d = diffuseColor * Fd_Burley(NoV,NoL,LoH,linearRoughness); 
+	float linearRoughness = pow(roughness, 2.0);
+	vec3 Fd_d = diffuseColor * Fd_Burley(NoV,NoL,LoH,linearRoughness);
 
 	//add diffuse and specular reflection
 	vec3 direct = Fr_d + Fd_d;
 
 	//compute how much light received the pixel
-	vec3 lightParams = degamma(u_light_color) * u_light_intensity * att_factor * shadow_factor * coneFactor;
+	vec3 lightParams = u_light_color * u_light_intensity * att_factor * shadow_factor * coneFactor;
 
 	//modulate direct light by light received
 	vec3 light = direct * lightParams + ambient;
 
-	//light += gb2_color.xyz;
 	color.xyz *= light;
-	color.xyz += degamma(gb2_color.xyz);
+	color.xyz += gb2_color.xyz;
 
 	FragColor = color;
 }
+
 
 \ssao.fs
 
@@ -1219,14 +1334,14 @@ uniform vec2 u_iRes;
 uniform sampler2D u_gb0_texture;
 uniform sampler2D u_gb1_texture;
 uniform sampler2D u_depth_texture;
-uniform sampler2D u_irr_texture;
 
 uniform mat4 u_inverse_viewprojection;
 uniform mat4 u_viewprojection;
 
+uniform sampler2D u_irr_texture;
 uniform vec3 u_irr_start;
 uniform vec3 u_irr_end;
-uniform vec3 u_irr_dims;
+uniform vec3 u_irr_dim;
 
 uniform float u_irr_normal_distance;
 uniform float u_num_probes;
@@ -1235,6 +1350,7 @@ uniform vec3 u_irr_delta;
 out vec4 FragColor;
 
 #include "SH"
+#include "irradiance"
 
 void main()
 {
@@ -1264,7 +1380,7 @@ void main()
 	vec3 local_indices = round(irr_norm_pos);
 
 	//compute in which row is the probe stored
-	float row = local_indices.x + local_indices.y * u_irr_dims.x + local_indices.z * u_irr_dims.x * u_irr_dims.y;
+	float row = local_indices.x + local_indices.y * u_irr_dim.x + local_indices.z * u_irr_dim.x * u_irr_dim.y;
 
 	//find the UV.y coord of that row in the probes texture
 	float row_uv = (row + 1.0) / (u_num_probes + 1.0);
@@ -1328,7 +1444,6 @@ void main()
 uniform vec2 u_iRes;
 
 uniform sampler2D u_depth_texture;
-uniform sampler2D u_irr_texture;
 uniform mat4 u_inverse_viewprojection;
 uniform mat4 u_viewprojection;
 uniform vec3 u_camera_position;
@@ -1428,6 +1543,8 @@ void main()
 
 	FragColor = color;
 }
+
+//POSTFX
 
 \greyscale.fs
 
@@ -1536,6 +1653,221 @@ void main() {
    gl_FragColor = color;
 }
 
+\dof.fs
+
+#version 330
+
+uniform float minDistance;
+uniform float maxDistance;
+
+uniform sampler2D u_texture;
+uniform sampler2D outOfFocusTexture;
+uniform sampler2D u_depth_texture;
+
+uniform mat4 u_inverse_viewprojection;
+uniform vec2 u_iRes;
+
+out vec4 FragColor;
+
+void main() {
+  	vec2 texCoord = gl_FragCoord.xy * u_iRes;
+
+  	float depth = texture( u_depth_texture, texCoord ).x;	
+  	vec4 screen_pos = vec4(texCoord.x*2.0-1.0, texCoord.y*2.0-1.0, depth*2.0-1.0, 1.0);
+  	vec4 proj_worldpos = u_inverse_viewprojection * screen_pos;
+  	vec3 world_position = proj_worldpos.xyz / proj_worldpos.w;
+
+  	vec4 focusColor = texture(u_texture, texCoord);
+  	vec4 outOfFocusColor = texture(outOfFocusTexture, texCoord);
+
+  	float blur = smoothstep(minDistance, maxDistance, length(world_position - depth));
+
+  	FragColor  = mix(focusColor, outOfFocusColor, blur);
+}
+
+\bloom.fs
+
+#version 330 core
+  
+in vec2 v_uv;
+
+uniform float threshold;
+uniform float soft_threshold;
+
+uniform sampler2D u_texture;
+
+out vec4 FragColor;
+
+
+void main()
+{
+	//we want to center the sample in the center of the pixel
+	vec2 uv = v_uv;
+
+	vec3 c = texture(u_texture, uv).rgb;
+
+	float brightness = max(c.r, max(c.g, c.b));
+	float contribution = max(0, brightness - threshold);
+	contribution /= max(brightness, 0.00001);
+	FragColor = vec4(c * contribution, 1.0);
+}
+
+\fxaa.fs
+
+#version 330 core
+
+uniform vec2 u_viewportSize;
+uniform vec2 u_iViewportSize;
+uniform sampler2D tex;
+
+#define FXAA_REDUCE_MIN (1.0/ 128.0)
+#define FXAA_REDUCE_MUL (1.0 / 8.0)
+#define FXAA_SPAN_MAX 8.0
+
+out vec4 FragColor;
+
+/* from mitsuhiko/webgl-meincraft based on the code on geeks3d.com */
+/* fragCoord MUST BE IN PIXELS */
+void main()
+{
+	vec2 fragCoord = gl_FragCoord.xy;
+	vec4 color = vec4(0.0);
+	/*vec2 u_iViewportSize = vec2(1.0 / u_viewportSize.x, 1.0 / u_viewportSize.y);*/
+	vec3 rgbNW = texture2D(tex, (fragCoord + vec2(-1.0, -1.0)) * u_iViewportSize).xyz;
+	vec3 rgbNE = texture2D(tex, (fragCoord + vec2(1.0, -1.0)) * u_iViewportSize).xyz;
+	vec3 rgbSW = texture2D(tex, (fragCoord + vec2(-1.0, 1.0)) * u_iViewportSize).xyz;
+	vec3 rgbSE = texture2D(tex, (fragCoord + vec2(1.0, 1.0)) * u_iViewportSize).xyz;
+	vec3 rgbM  = texture2D(tex, fragCoord  * u_iViewportSize).xyz;
+	vec3 luma = vec3(0.299, 0.587, 0.114);
+	float lumaNW = dot(rgbNW, luma);
+	float lumaNE = dot(rgbNE, luma);
+	float lumaSW = dot(rgbSW, luma);
+	float lumaSE = dot(rgbSE, luma);
+	float lumaM  = dot(rgbM,  luma);
+	float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+	float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+	
+	vec2 dir;
+	dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+	dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+	
+	float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) * (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
+	
+	float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+	dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX), max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX), dir * rcpDirMin)) * u_iViewportSize;
+	
+	vec3 rgbA = 0.5 * (texture2D(tex, fragCoord * u_iViewportSize + dir * (1.0 / 3.0 - 0.5)).xyz + 
+		texture2D(tex, fragCoord * u_iViewportSize + dir * (2.0 / 3.0 - 0.5)).xyz);
+	vec3 rgbB = rgbA * 0.5 + 0.25 * (texture2D(tex, fragCoord * u_iViewportSize + dir * -0.5).xyz + 
+		texture2D(tex, fragCoord * u_iViewportSize + dir * 0.5).xyz);
+	
+	//return vec4(rgbA,1.0);
+	float lumaB = dot(rgbB, luma);
+	if ((lumaB < lumaMin) || (lumaB > lumaMax))
+		color = vec4(rgbA, 1.0);
+	else
+		color = vec4(rgbB, 1.0);
+	
+	FragColor = color;
+}
+
+\lut.fs
+
+#version 330 core
+
+in vec2 v_uv;
+
+precision highp float;
+precision highp float;
+varying vec2 v_coord;
+uniform sampler2D u_texture;
+uniform sampler2D u_textureB;
+uniform float u_amount;
+
+void main() {
+	 lowp vec4 color = clamp( texture2D(u_texture, v_coord), vec4(0.0), vec4(1.0) );
+	 mediump float blueColor = color.b * 63.0;
+	 mediump vec2 quad1;
+	 quad1.y = floor(floor(blueColor) / 8.0);
+	 quad1.x = floor(blueColor) - (quad1.y * 8.0);
+	 mediump vec2 quad2;
+	 quad2.y = floor(ceil(blueColor) / 8.0);
+	 quad2.x = ceil(blueColor) - (quad2.y * 8.0);
+	 highp vec2 texPos1;
+	 texPos1.x = (quad1.x * 0.125) + 0.5/512.0 + ((0.125 - 1.0/512.0) * color.r);
+	 texPos1.y = 1.0 - ((quad1.y * 0.125) + 0.5/512.0 + ((0.125 - 1.0/512.0) * color.g ));
+	 highp vec2 texPos2;
+	 texPos2.x = (quad2.x * 0.125) + 0.5/512.0 + ((0.125 - 1.0/512.0) * color.r);
+	 texPos2.y = 1.0 - ((quad2.y * 0.125) + 0.5/512.0 + ((0.125 - 1.0/512.0) * color.g));
+	 lowp vec4 newColor1 = texture2D(u_textureB, texPos1);
+	 lowp vec4 newColor2 = texture2D(u_textureB, texPos2);
+	 lowp vec4 newColor = mix(newColor1, newColor2, fract(blueColor));
+	 gl_FragColor = vec4( mix( color.rgb, newColor.rgb, u_amount), color.w);
+}
+
+\lens_distortion.fs
+
+#version 330 core
+
+in vec2 v_uv;
+
+uniform vec2 u_iRes;
+uniform sampler2D u_texture;
+uniform float u_resolution;
+
+out vec4 FragColor;
+
+//Inspired by http://stackoverflow.com/questions/6030814/add-fisheye-effect-to-images-at-runtime-using-opengl-es
+void main() //Drag mouse over rendering area
+{
+	vec2 p = gl_FragCoord.xy * u_iRes.x; 
+	float prop = u_iRes.y / u_iRes.x;
+	vec2 m = vec2(0.5, 0.5 / prop);
+	vec2 d = p - m;
+	float r = sqrt(dot(d, d)); 
+
+	float resolution = sin(u_resolution * 2.0);
+
+	float bind = sqrt(dot(m, m));
+
+	// Weird formulas
+	vec2 uv;
+	if (resolution > 0.0)//fisheye
+		uv = m + normalize(d) * tan(r * resolution) * bind / tan( bind * resolution);
+	else if (resolution < 0.0)
+		uv = m + normalize(d) * atan(r * - resolution) * bind / atan(-resolution * bind);
+	else uv = p;
+        
+	uv.y *= prop;
+	vec3 color = texture(u_texture, uv).rgb;
+    
+	FragColor = vec4(color, 1.0);
+}
+
+\chromatic_aberration.fs
+
+#version 330 core
+
+uniform sampler2D u_texture;
+uniform vec2 u_iRes;
+uniform float u_amount;
+
+out vec4 FragColor;
+
+void main()
+{
+    vec2 uv = gl_FragCoord.xy * u_iRes.xy;
+	
+    vec3 col;
+    col.r = texture( u_texture, vec2(uv.x+u_amount,uv.y) ).r;
+    col.g = texture( u_texture, uv ).g;
+    col.b = texture( u_texture, vec2(uv.x-u_amount,uv.y) ).b;
+
+	col *= (1.0 - u_amount * 0.5);
+	
+    FragColor = vec4(col,1.0);
+}
+
 \motionblur.fs
 
 #version 330 core
@@ -1573,4 +1905,33 @@ void main() {
 	color /= float(SAMPLES);
 
 	gl_FragColor = color;
+}
+
+\grain.fs
+
+#version 330 core
+
+in vec2 v_uv;
+
+uniform float amount;
+uniform sampler2D tDiffuse;
+uniform float noise_amount;
+
+float random( vec2 p )
+{
+	vec2 K1 = vec2(
+    		23.14069263277926, // e^pi (Gelfond's constant)
+    		2.665144142690225 // 2^sqrt(2) (Gelfond–Schneider constant)
+  		);
+	return fract( cos( dot(p,K1) ) * 12345.6789 );
+}
+
+void main() {
+	vec2 vUv = v_uv;
+
+  	vec4 color = texture( tDiffuse, vUv );
+  	vec2 uvRandom = vUv;
+ 	uvRandom.y *= random(vec2(uvRandom.y,amount));
+  	color.rgb += random(uvRandom)*0.05 * noise_amount;
+  	gl_FragColor = vec4( color );
 }

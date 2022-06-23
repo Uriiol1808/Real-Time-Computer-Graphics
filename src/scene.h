@@ -119,6 +119,7 @@ namespace GTR {
 		float area_size;
 		bool cast_shadows;
 		float shadow_bias;
+		Vector3 target;
 
 		FBO* fbo;
 		Texture* shadowmap;

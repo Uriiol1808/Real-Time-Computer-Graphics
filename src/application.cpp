@@ -255,16 +255,39 @@ void Application::renderDebugGUI(void)
 	ImGui::Checkbox("3 - GBuffers", &renderer->show_gbuffers);
 	ImGui::Checkbox("4 - HDR", &renderer->show_hdr);
 	ImGui::Checkbox("5 - SSAO", &renderer->show_ssao);
+
 	//LAB3
+
 	ImGui::Checkbox("6 - Irradiance texture", &renderer->show_probes_texture);
-	ImGui::SliderFloat("Air Density", &scene->air_density, 0.0, 10.0);
+	ImGui::SliderFloat("Air Density", &scene->air_density, 0.0f, 10.0f);
+
 	//POSTFX
-	ImGui::SliderFloat("Contrast", &renderer->contrast, 0.0, 5.0);
-	ImGui::SliderFloat("Saturation", &renderer->saturation, 0.0, 2.0);
-	ImGui::SliderFloat("Vigneting", &renderer->vigneting, 0.0, 2.0); 
-	ImGui::SliderFloat("Debug factor", &renderer->debug_factor, 0.0, 2.0);
-	ImGui::SliderFloat("Debug factor 2", &renderer->debug_factor2, 0.0, 2.0);
-	ImGui::SliderFloat("Threshold", &renderer->threshold, 0.0, 2.0);
+	ImGui::Text("Post FX parameters");
+	//Blur
+	ImGui::SliderFloat("Blur", &renderer->blur, 0.0f, 2.0f); 
+	//Saturation + Contrast + Vigneting
+	ImGui::SliderFloat("Saturation", &renderer->saturation, 0.0f, 2.0f);
+	ImGui::SliderFloat("Contrast", &renderer->contrast, 0.0f, 5.0f); 
+	ImGui::SliderFloat("Vigneting", &renderer->vigneting, 0.0f, 2.0f); 
+	ImGui::SliderFloat("Mix factor", &renderer->mix_factor, 0.0f, 2.0f);
+	ImGui::SliderFloat("Threshold", &renderer->threshold, 0.0f, 2.0f);
+	//DoF 
+	ImGui::SliderFloat("Min Distance", &renderer->minDistance, 0.0f, 100.0f);
+	ImGui::SliderFloat("Max Distance", &renderer->maxDistance, 0.0f, 500.0f);
+	//Bloom 
+	ImGui::SliderFloat("Bloom Threshold", &renderer->bloom_threshold, 0.0f, 10.f);
+	ImGui::SliderFloat("Bloom Soft Threshold", &renderer->bloom_soft_threshold, 0.0f, 0.10f);
+	//FXAA
+
+	//LUT
+
+	//Lens Distorion 
+	ImGui::SliderFloat("Lens distortion", &renderer->distortion, -0.9f, 0.9f);
+	//Chroma Aberration
+	ImGui::SliderFloat("Chromatic aberration", &renderer->chroma, -0.01f, 0.01f);
+	//Grain
+	ImGui::SliderFloat("Grain", &renderer->noise_amount, 0.0f, 10.0f);
+
 
 	//add info to the debug panel about the camera
 	if (ImGui::TreeNode(camera, "Camera")) {
@@ -312,7 +335,8 @@ void Application::onKeyDown( SDL_KeyboardEvent event )
 		case SDLK_3: renderer->show_gbuffers = !renderer->show_gbuffers; break;
 		case SDLK_4: renderer->show_hdr = !renderer->show_hdr; break;
 		case SDLK_5: renderer->show_ssao = !renderer->show_ssao; break;
-		//Lab3
+
+		//LAB3
 		case SDLK_SPACE: renderer->generateProbes(scene); break;
 		case SDLK_6: renderer->show_probes_texture = !renderer->show_probes_texture; break;
 		case SDLK_7: renderer->updateReflectionProbes(scene); break;
