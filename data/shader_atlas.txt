@@ -41,6 +41,38 @@ lens_distortion quad.vs lens_distortion.fs
 chromatic_aberration quad.vs chromatic_aberration.fs
 motionblur quad.vs motionblur.fs
 grain quad.vs grain.fs
+pixelization quad.vs pixelization.fs
+
+\blurtex
+#define Pi 6.28318530718
+
+// GAUSSIAN BLUR SETTINGS {{{
+#define directions 16.0 // BLUR DIRECTIONS (Default 16.0 - More is better but slower)
+#define quality 3.0 // BLUR QUALITY (Default 4.0 - More is better but slower)
+// GAUSSIAN BLUR SETTINGS }}}
+
+vec4 blur_texture(sampler2D texture_blur, vec2 iRes, float size)
+{
+	vec2 radius = size * iRes.xy;
+  
+	// Normalized pixel coordinates (from 0 to 1)
+	vec2 uv = gl_FragCoord.xy * iRes.xy;
+	// Pixel colour
+	vec4 color = texture( texture_blur, uv);
+  
+	// Blur calculations
+	for( float d = 0.0; d < Pi; d += Pi/directions)
+	{
+		for(float i=1.0/quality; i<=1.0; i+=1.0/quality)
+		{
+			color += texture( texture_blur, uv+vec2(cos(d),sin(d))*radius*i);
+		}
+	}
+  
+  // Output to screen
+  color /= quality * directions + 10.0;
+  return color;
+}
 
 \normal_func
 mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
@@ -76,7 +108,7 @@ vec3 perturbNormal(vec3 N, vec3 WP, vec2 uv, vec3 normal_pixel)
 
 float getConeFactor (vec3 L)
 {
-	float spot_cosine = dot(u_light_direction, -L);
+	float spot_cosine = dot(u_light_position, -L);
 	if (u_light_cone_exp.z > spot_cosine)
 		return 0.0;
 	return pow(spot_cosine, u_light_cone_exp.y);
@@ -960,19 +992,17 @@ uniform vec2 u_iRes;
 
 uniform float u_time;
 uniform float u_alpha_cutoff;
+uniform float u_light_intensity;
+uniform float u_light_max_dist;
 
 uniform int u_light_type;
 uniform vec3 u_light_color;
 uniform vec3 u_light_position;
-
 uniform vec3 u_light_cone_exp;
-uniform vec3 u_light_direction;
-uniform float u_light_intensity;
 uniform vec3 u_light_vector;
-
+uniform vec3 u_light_direction;
 uniform vec3 u_ambient_light;
 uniform vec3 u_camera_position;
-uniform float u_light_max_dist;
 
 uniform sampler2D u_irr_texture;
 uniform vec3 u_irr_start;
@@ -982,6 +1012,7 @@ uniform vec3 u_irr_dim;
 uniform float u_irr_normal_distance;
 uniform float u_num_probes;
 uniform vec3 u_irr_delta;
+uniform bool u_irr;
 
 out vec4 FragColor;
 
@@ -1028,7 +1059,8 @@ void main()
 
 	//IRRADIANCE
 	vec3 irradiance = vec3(1.0);
-	irradiance = computeIrradiance(u_irr_end, u_irr_start, world_position, N, u_irr_normal_distance, u_irr_delta, u_irr_dim, u_num_probes, u_irr_texture);
+	if (u_irr)
+		irradiance = computeIrradiance(u_irr_end, u_irr_start, world_position, N, u_irr_normal_distance, u_irr_delta, u_irr_dim, u_num_probes, u_irr_texture);
 	
 	vec3 L;
 	float shadow_factor = 1.0;
@@ -1287,7 +1319,7 @@ void main() {
 
 	rgb = (rgb / lum) * Ld;
 	rgb = max(rgb,vec3(0.001));
-	rgb = pow( rgb, vec3( u_igamma ) );
+	rgb = pow( rgb, vec3( 1.0 / u_igamma ) );
 	gl_FragColor = vec4( rgb, color.a );
 }
 
@@ -1453,6 +1485,11 @@ uniform vec3 u_light_position;
 uniform int u_light_type;
 uniform float u_air_density;
 
+uniform vec3 u_light_vector;
+uniform float u_light_max_dist;
+uniform vec3 u_light_direction;
+uniform vec3 u_light_cone_exp;
+
 out vec4 FragColor;
 
 const int SAMPLES = 64;
@@ -1476,7 +1513,7 @@ void main()
 	float ray_length = length(ray_dir);
 	ray_dir /= ray_length;
 	ray_dir = normalize(ray_dir);
-	ray_length = min(200.0, ray_length);
+	ray_length = min(500.0, ray_length);
 	
 	float step_dist = ray_length / float(SAMPLES);
 
@@ -1484,9 +1521,34 @@ void main()
 	vec3 ray_offset = ray_dir * step_dist;
 
 	float transparency = 1.0;
-
 	vec3 irradiance = vec3(0.0);
-	float in_light = 0;
+
+	vec3 L;
+	if (u_light_type == 2)
+		L = normalize(u_light_vector);
+	else
+		L = u_light_position - world_position;
+
+	float light_dist = length(L);
+	float att_factor = u_light_max_dist - light_dist;
+	float coneFactor = 1.0;
+
+	if (u_light_type == 1) //SPOT
+	{	
+		L = normalize(u_light_position - world_position);
+		if (u_light_cone_exp.z > 0.0)
+		{
+			float cos_angle = dot(normalize(u_light_direction), -L);
+			if (cos_angle > u_light_cone_exp.z)
+			{
+				coneFactor = pow(cos_angle, u_light_cone_exp.y);
+
+			} else {coneFactor = 0.0;}
+		} 
+	}
+	att_factor /= u_light_max_dist;
+	att_factor = max(att_factor, 0.0);
+	att_factor *= pow(att_factor, 2.0);
 
 	for(int i = 0; i < SAMPLES; ++i)
 	{
@@ -1495,7 +1557,7 @@ void main()
 		irradiance += light * transparency * (u_air_density * step_dist);
 
 		transparency -= u_air_density * step_dist;
-		//too dense, nothing can be seen behind
+
 		if( transparency < 0.001 )
 			break;
 
@@ -1655,34 +1717,41 @@ void main() {
 
 \dof.fs
 
-#version 330
+#version 330 core
 
-uniform float minDistance;
-uniform float maxDistance;
-
-uniform sampler2D u_texture;
-uniform sampler2D outOfFocusTexture;
-uniform sampler2D u_depth_texture;
-
-uniform mat4 u_inverse_viewprojection;
 uniform vec2 u_iRes;
+uniform vec2 u_camera_nearfar;
+
+uniform float u_size;
+uniform float u_aperture;
+uniform float u_focal_length;
+uniform float u_plane_focus;
+
+uniform sampler2D u_depth_texture;
+uniform sampler2D u_texture;
+
+#include "blurtex"
 
 out vec4 FragColor;
 
-void main() {
-  	vec2 texCoord = gl_FragCoord.xy * u_iRes;
+// Circle of Confusion from https://developer.nvidia.com/gpugems/gpugems/part-iv-image-processing/chapter-23-depth-field-survey-techniques
+// Clamp 20 from https://fileadmin.cs.lth.se/cs/Education/EDAN35/lectures/12DOF.pdf
+void main()
+{
+	// Normalized pixel coordinates (from 0 to 1)
+  	vec2 uv = gl_FragCoord.xy * u_iRes;
 
-  	float depth = texture( u_depth_texture, texCoord ).x;	
-  	vec4 screen_pos = vec4(texCoord.x*2.0-1.0, texCoord.y*2.0-1.0, depth*2.0-1.0, 1.0);
-  	vec4 proj_worldpos = u_inverse_viewprojection * screen_pos;
-  	vec3 world_position = proj_worldpos.xyz / proj_worldpos.w;
+	float z = texture( u_depth_texture, uv ).x;
 
-  	vec4 focusColor = texture(u_texture, texCoord);
-  	vec4 outOfFocusColor = texture(outOfFocusTexture, texCoord);
+	float n = u_camera_nearfar.x;
+	float f = u_camera_nearfar.y;
+	float object_distance = n * (z + 1.0) / (f + n - z * (f - n));
+	float CoC = abs(u_aperture * (u_focal_length * (object_distance - u_plane_focus)) / (object_distance * (u_plane_focus - u_focal_length)) );
+	
+	CoC = clamp(CoC, 0.0, 20.0);
 
-  	float blur = smoothstep(minDistance, maxDistance, length(world_position - depth));
-
-  	FragColor  = mix(focusColor, outOfFocusColor, blur);
+	vec4 blurred_color = blur_texture(u_texture, u_iRes, CoC);
+    FragColor = blurred_color;
 }
 
 \bloom.fs
@@ -1693,22 +1762,27 @@ in vec2 v_uv;
 
 uniform float threshold;
 uniform float soft_threshold;
+uniform float u_intensity;
 
 uniform sampler2D u_texture;
 
 out vec4 FragColor;
 
-
+// https://catlikecoding.com/unity/tutorials/advanced-rendering/bloom/
 void main()
 {
 	//we want to center the sample in the center of the pixel
 	vec2 uv = v_uv;
-
-	vec3 c = texture(u_texture, uv).rgb;
+	vec3 c = texture(u_texture, uv).rgb * u_intensity;
 
 	float brightness = max(c.r, max(c.g, c.b));
-	float contribution = max(0, brightness - threshold);
-	contribution /= max(brightness, 0.00001);
+	float knee = threshold * soft_threshold;
+	float soft = brightness - threshold + knee;
+	soft = clamp(soft, 0, 2 * knee);
+	soft = soft * soft / (4 * knee + 0.00001);
+
+	float contribution = max(soft, brightness - threshold);
+	contribution /= max(brightness, 0.01);
 	FragColor = vec4(c * contribution, 1.0);
 }
 
@@ -1718,7 +1792,7 @@ void main()
 
 uniform vec2 u_viewportSize;
 uniform vec2 u_iViewportSize;
-uniform sampler2D tex;
+uniform sampler2D u_texture;
 
 #define FXAA_REDUCE_MIN (1.0/ 128.0)
 #define FXAA_REDUCE_MUL (1.0 / 8.0)
@@ -1726,18 +1800,16 @@ uniform sampler2D tex;
 
 out vec4 FragColor;
 
-/* from mitsuhiko/webgl-meincraft based on the code on geeks3d.com */
-/* fragCoord MUST BE IN PIXELS */
 void main()
 {
 	vec2 fragCoord = gl_FragCoord.xy;
 	vec4 color = vec4(0.0);
 	/*vec2 u_iViewportSize = vec2(1.0 / u_viewportSize.x, 1.0 / u_viewportSize.y);*/
-	vec3 rgbNW = texture2D(tex, (fragCoord + vec2(-1.0, -1.0)) * u_iViewportSize).xyz;
-	vec3 rgbNE = texture2D(tex, (fragCoord + vec2(1.0, -1.0)) * u_iViewportSize).xyz;
-	vec3 rgbSW = texture2D(tex, (fragCoord + vec2(-1.0, 1.0)) * u_iViewportSize).xyz;
-	vec3 rgbSE = texture2D(tex, (fragCoord + vec2(1.0, 1.0)) * u_iViewportSize).xyz;
-	vec3 rgbM  = texture2D(tex, fragCoord  * u_iViewportSize).xyz;
+	vec3 rgbNW = texture2D(u_texture, (fragCoord + vec2(-1.0, -1.0)) * u_iViewportSize).xyz;
+	vec3 rgbNE = texture2D(u_texture, (fragCoord + vec2(1.0, -1.0)) * u_iViewportSize).xyz;
+	vec3 rgbSW = texture2D(u_texture, (fragCoord + vec2(-1.0, 1.0)) * u_iViewportSize).xyz;
+	vec3 rgbSE = texture2D(u_texture, (fragCoord + vec2(1.0, 1.0)) * u_iViewportSize).xyz;
+	vec3 rgbM  = texture2D(u_texture, fragCoord  * u_iViewportSize).xyz;
 	vec3 luma = vec3(0.299, 0.587, 0.114);
 	float lumaNW = dot(rgbNW, luma);
 	float lumaNE = dot(rgbNE, luma);
@@ -1756,10 +1828,10 @@ void main()
 	float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
 	dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX), max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX), dir * rcpDirMin)) * u_iViewportSize;
 	
-	vec3 rgbA = 0.5 * (texture2D(tex, fragCoord * u_iViewportSize + dir * (1.0 / 3.0 - 0.5)).xyz + 
-		texture2D(tex, fragCoord * u_iViewportSize + dir * (2.0 / 3.0 - 0.5)).xyz);
-	vec3 rgbB = rgbA * 0.5 + 0.25 * (texture2D(tex, fragCoord * u_iViewportSize + dir * -0.5).xyz + 
-		texture2D(tex, fragCoord * u_iViewportSize + dir * 0.5).xyz);
+	vec3 rgbA = 0.5 * (texture2D(u_texture, fragCoord * u_iViewportSize + dir * (1.0 / 3.0 - 0.5)).xyz + 
+		texture2D(u_texture, fragCoord * u_iViewportSize + dir * (2.0 / 3.0 - 0.5)).xyz);
+	vec3 rgbB = rgbA * 0.5 + 0.25 * (texture2D(u_texture, fragCoord * u_iViewportSize + dir * -0.5).xyz + 
+		texture2D(u_texture, fragCoord * u_iViewportSize + dir * 0.5).xyz);
 	
 	//return vec4(rgbA,1.0);
 	float lumaB = dot(rgbB, luma);
@@ -1817,8 +1889,7 @@ uniform float u_resolution;
 
 out vec4 FragColor;
 
-//Inspired by http://stackoverflow.com/questions/6030814/add-fisheye-effect-to-images-at-runtime-using-opengl-es
-void main() //Drag mouse over rendering area
+void main() 
 {
 	vec2 p = gl_FragCoord.xy * u_iRes.x; 
 	float prop = u_iRes.y / u_iRes.x;
@@ -1830,7 +1901,6 @@ void main() //Drag mouse over rendering area
 
 	float bind = sqrt(dot(m, m));
 
-	// Weird formulas
 	vec2 uv;
 	if (resolution > 0.0)//fisheye
 		uv = m + normalize(d) * tan(r * resolution) * bind / tan( bind * resolution);

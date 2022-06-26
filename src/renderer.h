@@ -124,12 +124,15 @@ namespace GTR {
 		float threshold; 
 		Matrix44 vp_matrix_last;
 
-		float minDistance;
-		float maxDistance;
+		float focus_plane;
+		float aperture;
+
 		float distortion;
 		float noise_amount;
 		float chroma;
+		float lut_amount;
 
+		float bloom_intensity;
 		float bloom_threshold;
 		float bloom_soft_threshold;
 

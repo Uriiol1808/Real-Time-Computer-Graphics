@@ -37,7 +37,7 @@ Renderer::Renderer()
 	//HDR - TONE MAPPING (Random numbers)
 	u_scale = 1.0;
 	u_average_lum = 2.5;
-	u_lumwhite2 = 10.0;
+	u_lumwhite2 = 100.0;
 	u_igamma = 2.2;
 	show_hdr = false;
 
@@ -76,16 +76,16 @@ Renderer::Renderer()
 	mix_factor = 1.0f;
 	threshold = 0.9f;
 	//Bloom/Glow
-	bloom_threshold = 1.0f;
+	bloom_intensity = 1.0f;
+	bloom_threshold = 0.0f;
 	bloom_soft_threshold = 0.5f;
-
 	//DoF
-	minDistance = 1.0f;
-	maxDistance = 3.0f;
+	focus_plane = 0.05f;
+	aperture = 1.0f;
 	//FXAA
 
 	//LUT
-
+	lut_amount = 0.0f;
 	//Lens Distortion
 	distortion = 0.0f;
 	//Chromatic Aberration
@@ -350,7 +350,6 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 
 	GbuffersShader(shader, scene, camera); //gb0, gb1, gb2, depth
 	shader->setUniform("u_ssao_texture", ssao_fbo->color_textures[0], 5);
-	//shader->setUniform("u_irr_texture", probes_texture, 6);
 
 	shader->setUniform("u_camera_position", camera->eye);
 	shader->setUniform("u_ambient_light", scene->ambient_light);
@@ -391,6 +390,7 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		GbuffersShader(shader, scene, camera);
 		shader->setUniform("u_inverse_viewprojection", inv_vp);
 		shader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
+		shader->setUniform("u_irr", true);
 
 		shader->setUniform("u_ssao_texture", ssao_fbo->color_textures[0], 5);
 		shader->setUniform("u_irr_texture", probes_texture, 6);
@@ -406,7 +406,9 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 		
 		quad->render(GL_TRIANGLES);
-	}
+
+	}else { shader->setUniform("u_irr", false); }
+	
 
 	//-------ALPHA-------
 	//gbuffers_fbo->depth_texture->copyTo(NULL); //Depth buffer
@@ -458,9 +460,20 @@ void GTR::Renderer::renderDeferred(Camera* camera, GTR::Scene* scene)
 		shader->setUniform("u_inverse_viewprojection", inv_vp);
 		shader->setUniform("u_air_density", scene->air_density * 0.001f);
 		shader->setUniform("u_iRes", Vector2(1.0 / (float)volumetric_fbo->color_textures[0]->width, 1.0 / (float)volumetric_fbo->color_textures[0]->height));
-		uploadLightToShader(direct_light, shader);
+		
+		glDisable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE);
 
-		quad->render(GL_TRIANGLES);
+		for (int i = 0; i < lights.size(); ++i)
+		{
+			LightEntity* light = lights[i];
+			if (light->light_type == SPOT || light->light_type == DIRECTIONAL)
+			{	
+				uploadLightToShader(light, shader);
+				quad->render(GL_TRIANGLES);
+			}
+		}
+		
 		volumetric_fbo->unbind();
 		glEnable(GL_BLEND);
 		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -528,39 +541,40 @@ void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Came
 		fbo->unbind();
 		current_texture = postFX_textureB;
 	}
-	/*
-	//Bloom
+	
+	//Bloom 
 	fbo = Texture::getGlobalFBO(postFX_textureA);
 	fbo->bind();
 	fxshader = Shader::Get("bloom");
 	fxshader->enable();
+	fxshader->setUniform("u_intensity", bloom_intensity);
 	fxshader->setUniform("threshold", bloom_threshold);
 	fxshader->setUniform("soft_threshold", bloom_soft_threshold);
 	current_texture->toViewport(fxshader);
 	fbo->unbind();
 	current_texture = postFX_textureA;
 	std::swap(postFX_textureA, postFX_textureB);
-	*/
-
+	
 	//Depth of Field
 	fbo = Texture::getGlobalFBO(postFX_textureA);
 	fbo->bind();
 	fxshader = Shader::Get("dof");
 	fxshader->enable();
 
-	fxshader->setUniform("minDistance", minDistance);
-	fxshader->setUniform("maxDistance", maxDistance);
+	fxshader->setUniform("u_depth_texture", depth_texture, 1);
+	fxshader->setUniform("u_camera_nearfar", Vector2(camera->near_plane, camera->far_plane));
 
-	fxshader->setUniform("outOfFocusTexture", postFX_textureB, 1);
-	fxshader->setUniform("u_depth_texture", depth_texture, 2);
-	fxshader->setUniform("u_inverse_viewprojection", inv_vp);
-	fxshader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
+	fxshader->setUniform("u_size", (float)20.0f);
+	fxshader->setUniform("u_aperture", (float)aperture);
+	fxshader->setUniform("u_focal_length", 1.0f / tan(camera->fov * float(DEG2RAD) * 0.5f));
+	fxshader->setUniform("u_plane_focus", (float)focus_plane);
 
+	fxshader->setUniform("u_iRes", Vector2(1.0f / (float)width, 1.0f / (float)height));
 	current_texture->toViewport(fxshader);
 	fbo->unbind();
 	current_texture = postFX_textureA;
 	std::swap(postFX_textureA, postFX_textureB);
-
+	
 	//Motion Blur
 	fbo = Texture::getGlobalFBO(postFX_textureA);
 	fbo->bind();
@@ -588,7 +602,7 @@ void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Came
 	current_texture = postFX_textureA;
 	std::swap(postFX_textureA, postFX_textureB);
 
-	//Bloom 
+	//Contrast 
 	fbo = Texture::getGlobalFBO(postFX_textureC); //Grayscale image
 	fbo->bind();
 	fxshader = Shader::Get("contrast");
@@ -598,7 +612,8 @@ void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Came
 	fbo->unbind();
 	current_texture = postFX_textureC;
 
-	fbo = Texture::getGlobalFBO(postFX_textureD); //Threshold
+	//Threshold contrast
+	fbo = Texture::getGlobalFBO(postFX_textureD);
 	fbo->bind();
 	fxshader = Shader::Get("threshold");
 	fxshader->enable();
@@ -607,6 +622,7 @@ void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Came
 	fbo->unbind();
 	current_texture = postFX_textureD;
 
+	//Mix
 	fbo = Texture::getGlobalFBO(postFX_textureA);
 	fbo->bind();
 	fxshader = Shader::Get("mix");
@@ -643,7 +659,7 @@ void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Came
 	current_texture = postFX_textureA;
 	std::swap(postFX_textureA, postFX_textureB);
 
-	//Lens Distortion 
+	//Lens Distortion CAMMBIAR AL DE LAS SLIDES
 	fbo = Texture::getGlobalFBO(postFX_textureA);
 	fbo->bind();
 	fxshader = Shader::Get("lens_distortion");
@@ -655,48 +671,44 @@ void GTR::Renderer::applyFX(Texture* color_texture, Texture* depth_texture, Came
 	current_texture = postFX_textureA;
 	std::swap(postFX_textureA, postFX_textureB);
 
-	current_texture->toViewport();
-
 	/*
-	//FXAA NO
+	//LUT
+	fbo = Texture::getGlobalFBO(postFX_textureA);
+	fbo->bind();
+	fxshader = Shader::Get("lut");
+	fxshader->enable();
+	fxshader->setUniform("u_amount", lut_amount);
+	fxshader->setUniform("u_textureB", postFX_textureD, 1);
+	current_texture->toViewport(fxshader);
+	fbo->unbind();
+	current_texture = postFX_textureA;
+	std::swap(postFX_textureA, postFX_textureB);
+	*/
+
+	//FXAA (not yet)
 	fbo = Texture::getGlobalFBO(postFX_textureA);
 	fbo->bind();
 	fxshader = Shader::Get("fxaa");
 	fxshader->enable();
-	fxshader->setUniform("u_viewportSize", Vector2(1.0 / (float)width, 1.0 / (float)height));
+	fxshader->setUniform("u_viewportSize", Vector2((float)width, (float)height));
 	fxshader->setUniform("u_iViewportSize", Vector2(1.0 / (float)width, 1.0 / (float)height));
-	fxshader->setTexture("tex", illumination_fbo->color_textures[0], 0);
 	current_texture->toViewport(fxshader);
 	fbo->unbind();
 	current_texture = postFX_textureA;
 	std::swap(postFX_textureA, postFX_textureB);
-	current_texture->toViewport();
-	*/
 
-	//LUT
-
-	/*
-	//Lens Distortion SI
-	fbo = Texture::getGlobalFBO(postFX_textureA);
-	fbo->bind();
-	fxshader = Shader::Get("lens_distortion");
+	//Tonemapper
+	fxshader = Shader::Get("tonemapping");
 	fxshader->enable();
-	fxshader->setUniform("u_iRes", Vector2(1.0 / (float)width, 1.0 / (float)height));
-	fxshader->setUniform("u_resolution", resolution);
-	current_texture->toViewport(fxshader);
-	fbo->unbind();
-	current_texture = postFX_textureA;
-	std::swap(postFX_textureA, postFX_textureB);
 
-	current_texture->toViewport();
-	*/
+	fxshader->setUniform("u_scale", u_scale);
+	fxshader->setUniform("u_average_lum", u_average_lum);
+	fxshader->setUniform("u_lumwhite2", u_lumwhite2);
+	fxshader->setUniform("u_igamma", u_igamma);
+	glDisable(GL_BLEND);
 
+	current_texture->toViewport(fxshader); //fxshader
 
-
-	/*
-	
-	//TONEMAPPER
-	*/
 }
 
 void Renderer::GbuffersShader(Shader* shader, Scene* scene, Camera* camera)
@@ -1066,7 +1078,7 @@ void Renderer::uploadLightToShader(GTR::LightEntity* light, Shader* shader)
 	shader->setUniform("u_light_type", (int)light->light_type);
 
 	shader->setUniform("u_light_color", light->color); //* light->intensity
-	shader->setUniform("u_light_position", light->model * Vector3());
+	shader->setUniform("u_light_position", light->model.getTranslation());
 	shader->setUniform("u_light_max_dist", light->max_dist);
 
 	shader->setUniform("u_light_cone_exp", Vector3(light->cone_angle, light->cone_exp, cos(light->cone_angle * DEG2RAD)));

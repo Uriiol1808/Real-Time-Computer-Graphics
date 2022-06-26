@@ -257,7 +257,6 @@ void Application::renderDebugGUI(void)
 	ImGui::Checkbox("5 - SSAO", &renderer->show_ssao);
 
 	//LAB3
-
 	ImGui::Checkbox("6 - Irradiance texture", &renderer->show_probes_texture);
 	ImGui::SliderFloat("Air Density", &scene->air_density, 0.0f, 10.0f);
 
@@ -272,22 +271,30 @@ void Application::renderDebugGUI(void)
 	ImGui::SliderFloat("Mix factor", &renderer->mix_factor, 0.0f, 2.0f);
 	ImGui::SliderFloat("Threshold", &renderer->threshold, 0.0f, 2.0f);
 	//DoF 
-	ImGui::SliderFloat("Min Distance", &renderer->minDistance, 0.0f, 100.0f);
-	ImGui::SliderFloat("Max Distance", &renderer->maxDistance, 0.0f, 500.0f);
-	//Bloom 
+	ImGui::Text("Depth of Field");
+	ImGui::SliderFloat("Plane in focus", &renderer->focus_plane, 0.0f, 0.6f);
+	ImGui::SliderFloat("Aperture", &renderer->aperture, 1.0f, 20.0f);
+	//Bloom
+	ImGui::Text("Bloom");
+	ImGui::SliderFloat("Bloom Intensity", &renderer->bloom_intensity, 0.0f, 20.0f);
 	ImGui::SliderFloat("Bloom Threshold", &renderer->bloom_threshold, 0.0f, 10.f);
 	ImGui::SliderFloat("Bloom Soft Threshold", &renderer->bloom_soft_threshold, 0.0f, 0.10f);
 	//FXAA
+	ImGui::Text("FXAA");
 
-	//LUT
-
+	//LUT 
+	ImGui::Text("LUT");
+	ImGui::SliderFloat("LUT amount", &renderer->lut_amount, 0.0f, 0.10f);
 	//Lens Distorion 
-	ImGui::SliderFloat("Lens distortion", &renderer->distortion, -0.9f, 0.9f);
+	ImGui::Text("Lens distortion");
+	ImGui::SliderFloat("Lens distortion factor", &renderer->distortion, -0.9f, 0.9f);
 	//Chroma Aberration
-	ImGui::SliderFloat("Chromatic aberration", &renderer->chroma, -0.01f, 0.01f);
+	ImGui::Text("Chromatic aberration");
+	ImGui::SliderFloat("Chromatic factor", &renderer->chroma, -0.01f, 0.01f);
 	//Grain
-	ImGui::SliderFloat("Grain", &renderer->noise_amount, 0.0f, 10.0f);
-
+	ImGui::Text("Grain");
+	ImGui::SliderFloat("Noise factor", &renderer->noise_amount, 0.0f, 10.0f);
+	//Motion Blur
 
 	//add info to the debug panel about the camera
 	if (ImGui::TreeNode(camera, "Camera")) {

@@ -9,9 +9,18 @@
 		{
 			"name":"decal",
 			"type":"DECAL",
-			"position":[0,0,0],
-			"scale":[40,10,20],
+			"position":[-28.340,52.144,-47.804],
+			"scale":[20,5,20],
+			"angle": -45,
 			"texture":"data/textures/decal.png"
+		},
+		{
+			"name":"decal2",
+			"type":"DECAL",
+			"position":[81.6,12,56],
+			"scale":[32,10,31],
+			"angle": 90,
+			"texture":"data/textures/decal2.png"
 		},
 		{
 			"name":"floor",
